@@ -124,6 +124,9 @@ export default function SettingsPage() {
 
             {/* Metrika Sync Section */}
             <MetrikaSyncSection />
+
+            {/* Archive Import */}
+            <ArchiveSection />
         </div >
     );
 }
