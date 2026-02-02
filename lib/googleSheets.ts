@@ -151,6 +151,82 @@ export async function updateRow(
 }
 
 /**
+ * Обновить несколько строк одним запросом (Batch Update)
+ */
+export async function updateRowsBatch(
+    sheetName: string,
+    updates: Array<{ rowIndex: number; data: Record<string, string> }>
+): Promise<void> {
+    const sheets = getGoogleSheetsClient();
+
+    try {
+        // Сначала получим заголовки чтобы найти нужные колонки
+        const headerResponse = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `'${sheetName}'!1:1`,
+        });
+
+        const headers = headerResponse.data.values?.[0] as string[];
+        if (!headers) {
+            throw new Error("Не удалось получить заголовки таблицы");
+        }
+
+        // Формируем массив обновлений
+        const updateRequests: sheets_v4.Schema$ValueRange[] = [];
+
+        for (const update of updates) {
+            for (const [field, value] of Object.entries(update.data)) {
+                const colIndex = headers.indexOf(field);
+                if (colIndex === -1) {
+                    console.warn(`Колонка "${field}" не найдена`);
+                    continue;
+                }
+
+                // Преобразуем индекс колонки в букву (A, B, C, ...)
+                // Note: This simple logic works for A-Z. For AA+, need better logic if lots of cols. 
+                // However, standard sheets usually fit in A-Z for leads. 
+                // But let's support up to ZZ for safety if easy, or stick to simple charCode for now as per existing updateRow.
+                // Existing updateRow uses String.fromCharCode(65 + colIndex). This breaks at index 26.
+                // Should we improve it? The user has "Сумма продажи" which might be far right.
+                // Let's copy existing logic for consistency, but maybe improve if columns > 26.
+                // Given "Сумма продажи" is usually H/I/J, it is fine.
+
+                let colLetter = "";
+                if (colIndex < 26) {
+                    colLetter = String.fromCharCode(65 + colIndex);
+                } else {
+                    const first = Math.floor(colIndex / 26) - 1;
+                    const second = colIndex % 26;
+                    colLetter = String.fromCharCode(65 + first) + String.fromCharCode(65 + second);
+                }
+
+                const range = `'${sheetName}'!${colLetter}${update.rowIndex}`;
+
+                updateRequests.push({
+                    range,
+                    values: [[value]],
+                });
+            }
+        }
+
+        if (updateRequests.length > 0) {
+            await sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: SPREADSHEET_ID,
+                requestBody: {
+                    valueInputOption: "USER_ENTERED",
+                    data: updateRequests,
+                },
+            });
+            // Invalidate cache
+            delete cache[sheetName];
+        }
+    } catch (error) {
+        console.error("Ошибка при пакетном обновлении строк в Google Sheets:", error);
+        throw error;
+    }
+}
+
+/**
  * Добавить новые строки в конец листа
  */
 export async function appendRows(

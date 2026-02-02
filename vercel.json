@@ -1,0 +1,10 @@
+{
+    "functions": {
+        "app/api/leads/merge-archive/route.ts": {
+            "maxDuration": 300
+        },
+        "app/api/leads/import/route.ts": {
+            "maxDuration": 300
+        }
+    }
+}

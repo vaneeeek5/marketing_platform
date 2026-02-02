@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSheetData, updateRow } from "@/lib/googleSheets";
+import { getSheetData, updateRow, updateRowsBatch } from "@/lib/googleSheets";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
 import * as XLSX from "xlsx";
 
@@ -124,6 +124,9 @@ export async function POST(req: NextRequest) {
         let p3Count = 0;
         let notMatched = 0;
 
+        // Collect all updates first
+        const pendingUpdates: Array<{ rowIndex: number, data: Record<string, string> }> = [];
+
         for (const excelLead of excelLeads) {
             // Пропустить если нет целевого статуса (пустые строки)
             if (!excelLead["Целевой"]) continue;
@@ -141,17 +144,19 @@ export async function POST(req: NextRequest) {
                 const newQual = excelLead["Квалификация"];
                 const newTarget = excelLead["Целевой"];
 
-                const update: any = {};
-                if (newQual !== undefined) update["Квалификация"] = newQual;
-                if (newTarget !== undefined) update["Целевой"] = newTarget;
+                const updateData: Record<string, string> = {};
+                if (newQual !== undefined) updateData["Квалификация"] = newQual;
+                if (newTarget !== undefined) updateData["Целевой"] = newTarget;
 
                 if (excelLead["Сумма продажи"] !== undefined) {
-                    update["Сумма продажи"] = excelLead["Сумма продажи"];
+                    updateData["Сумма продажи"] = excelLead["Сумма продажи"];
                 }
 
-                if (Object.keys(update).length > 0) {
-                    await updateRow(CURRENT_MONTH_SHEET, result.lead.rowIndex, update);
-                    console.log(`✓ Сверено (приоритет ${result.priority}): ${excelLead["Дата"]} ${excelLead["Время"]} ${excelLead["Кампания"]}`);
+                if (Object.keys(updateData).length > 0) {
+                    pendingUpdates.push({
+                        rowIndex: result.lead.rowIndex,
+                        data: updateData
+                    });
                 }
             } else {
                 notMatched++;
@@ -159,10 +164,49 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        // BATCH PROCESSING
+        const BATCH_SIZE = 50;
+        let processedCount = 0;
+
+        for (let i = 0; i < pendingUpdates.length; i += BATCH_SIZE) {
+            const batch = pendingUpdates.slice(i, i + BATCH_SIZE);
+
+            // Retry logic
+            let retries = 0;
+            const MAX_RETRIES = 3;
+            let success = false;
+
+            while (!success && retries < MAX_RETRIES) {
+                try {
+                    await updateRowsBatch(CURRENT_MONTH_SHEET, batch);
+                    success = true;
+                    processedCount += batch.length;
+                    console.log(`✓ Processed batch ${i / BATCH_SIZE + 1} (${batch.length} rows)`);
+                } catch (err: any) {
+                    console.error(`Batch error (attempt ${retries + 1}):`, err);
+                    retries++;
+                    if (retries < MAX_RETRIES) {
+                        const delay = Math.pow(2, retries) * 1000;
+                        await new Promise(r => setTimeout(r, delay));
+                    }
+                }
+            }
+
+            if (!success) {
+                console.error(`Failed to process batch after ${MAX_RETRIES} retries. Skipping.`);
+            }
+
+            // Delay between batches to respect rate limits
+            if (i + BATCH_SIZE < pendingUpdates.length) {
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+
         return NextResponse.json({
             success: true,
             total: excelLeads.length,
             matched: matchedCount,
+            updated: processedCount,
             notMatched: excelLeads.length - matchedCount,
             breakdown: {
                 exact: p1Count,
