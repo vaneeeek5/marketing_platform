@@ -1,42 +1,78 @@
+export const DEFAULT_COLORS: Record<string, string> = {
+    'рся': '#3b82f6',      // blue-500
+    'мк': '#10b981',       // emerald-500
+    'мк3': '#8b5cf6',      // violet-500
+    'квиз': '#f59e0b',     // amber-500
+    'мкквиз': '#ec4899',   // pink-500
+    'поиск': '#06b6d4',    // cyan-500
+    'ретаргет': '#ef4444', // red-500
+};
 
-// Палитра из 15 красивых цветов (Tailwind)
-const colorPalette = [
-    'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300',
-    'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300',
-    'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300',
-    'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300',
-    'bg-pink-100 text-pink-800 border-pink-300 dark:bg-pink-900/30 dark:text-pink-300',
-    'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300',
-    'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300',
-    'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-300',
-    'bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-900/30 dark:text-teal-300',
-    'bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-900/30 dark:text-cyan-300',
-    'bg-lime-100 text-lime-800 border-lime-300 dark:bg-lime-900/30 dark:text-lime-300',
-    'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300',
-    'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300',
-    'bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300',
-    'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
+// Fallback palette for unknown campaigns
+const FALBACK_PALETTE = [
+    '#ef4444', '#f97316', '#f59e0b', '#84cc16',
+    '#10b981', '#06b6d4', '#3b82f6', '#6366f1',
+    '#8b5cf6', '#ec4899', '#6b7280'
 ];
 
-export function getCampaignColor(campaignName: string | any): string {
-    const defaultColor = 'bg-gray-100 text-gray-800 border-gray-300 dark:bg-gray-800 dark:text-gray-300';
-    try {
-        if (!campaignName) return defaultColor;
+export function getCampaignColor(campaign: string | any): string {
+    const defaultColor = '#6b7280'; // gray-500
+    const normalized = String(campaign || "").toLowerCase().trim();
+    if (!normalized) return defaultColor;
 
-        const str = String(campaignName);
-        if (str.trim() === '') return defaultColor;
-
-        // Генерируем хэш из названия
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    // 1. Check LocalStorage (Client-side only)
+    if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('campaign-colors');
+        if (stored) {
+            try {
+                const colors = JSON.parse(stored);
+                if (colors[normalized]) return colors[normalized];
+            } catch (e) {
+                console.error('Error parsing campaign colors:', e);
+            }
         }
-
-        // Выбираем цвет из палитры
-        const index = Math.abs(hash) % colorPalette.length;
-        return colorPalette[index] || defaultColor;
-    } catch (e) {
-        console.error("Error generating campaign color:", e);
-        return defaultColor;
     }
+
+    // 2. Check Defaults
+    if (DEFAULT_COLORS[normalized]) {
+        return DEFAULT_COLORS[normalized];
+    }
+
+    // 3. Generate from Hash
+    let hash = 0;
+    for (let i = 0; i < normalized.length; i++) {
+        hash = normalized.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % FALBACK_PALETTE.length;
+    return FALBACK_PALETTE[index];
+}
+
+export function setCampaignColor(campaign: string, color: string): void {
+    if (typeof window === 'undefined') return;
+
+    const normalized = String(campaign || "").toLowerCase().trim();
+    if (!normalized) return;
+
+    const stored = localStorage.getItem('campaign-colors');
+    let colors: Record<string, string> = {};
+
+    if (stored) {
+        try {
+            colors = JSON.parse(stored);
+        } catch (e) {
+            console.error('Error parsing campaign colors:', e);
+        }
+    }
+
+    colors[normalized] = color;
+    localStorage.setItem('campaign-colors', JSON.stringify(colors));
+
+    // Dispatch event for real-time updates across components
+    window.dispatchEvent(new Event('campaign-colors-updated'));
+}
+
+export function resetCampaignColors(): void {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem('campaign-colors');
+    window.dispatchEvent(new Event('campaign-colors-updated'));
 }

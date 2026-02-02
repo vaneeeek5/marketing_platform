@@ -11,12 +11,20 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Database, FileSpreadsheet, Save, CheckCircle, Calendar } from "lucide-react";
+import { Database, FileSpreadsheet, Save, CheckCircle, Calendar, Palette } from "lucide-react";
+import { resetCampaignColors } from "@/lib/campaign-colors";
 
 export default function SettingsPage() {
     const [sheetId, setSheetId] = useState("1HUpmF9aG3UD9blHHsIhWQ8NPnPTeW36USgkrRVSh5Tg");
     const [targetSheet] = useState("Лиды");
     const [saved, setSaved] = useState(false);
+
+    const handleResetColors = () => {
+        if (confirm("Вы уверены? Это сбросит все настройки цветов кампаний (вернутся цвета по умолчанию).")) {
+            resetCampaignColors();
+            window.location.reload();
+        }
+    };
 
     useEffect(() => {
         // No fetching needed
@@ -118,6 +126,31 @@ export default function SettingsPage() {
                 <CardContent>
                     <div className="p-3 bg-muted rounded-md font-mono text-sm">
                         Лиды
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Appearance Settings */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Palette className="h-5 w-5 text-primary" />
+                        Внешний вид
+                    </CardTitle>
+                    <CardDescription>
+                        Настройки отображения интерфейса и цветов
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium">Цвета кампаний</label>
+                        <p className="text-xs text-muted-foreground mb-2">
+                            Если вы изменяли цвета кампаний вручную, можно сбросить их к заводским настройкам.
+                        </p>
+                        <Button onClick={handleResetColors} variant="outline" className="w-full sm:w-auto self-start">
+                            <Palette className="mr-2 h-4 w-4" />
+                            Сбросить цвета кампаний
+                        </Button>
                     </div>
                 </CardContent>
             </Card>

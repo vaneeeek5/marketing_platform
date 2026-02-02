@@ -26,7 +26,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Lead, LeadsResponse } from "@/types";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
-import { getCampaignColor } from "@/lib/campaign-colors";
+import CampaignBadge from "@/components/CampaignBadge";
 import { formatDate, formatTime } from "@/lib/utils";
 import {
     Loader2,
@@ -490,9 +490,7 @@ export default function LeadsPage() {
                                             </TableCell>
                                             <TableCell>{formatTime(lead.time)}</TableCell>
                                             <TableCell>
-                                                <Badge variant="secondary" className={getCampaignColor(lead.campaign)}>
-                                                    {lead.campaign || "—"}
-                                                </Badge>
+                                                <CampaignBadge campaign={lead.campaign} />
                                             </TableCell>
                                             <TableCell>
                                                 <Select
