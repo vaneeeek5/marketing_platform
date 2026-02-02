@@ -42,7 +42,10 @@ import {
     RefreshCw,
 } from "lucide-react";
 
+const RESET_OPTION = { value: "-", label: "-" };
+
 const STATUS_OPTIONS = [
+    RESET_OPTION,
     { value: "квал", label: "Квал" },
     { value: "дубль", label: "Дубль" },
     { value: "обычный", label: "Обычный" },
@@ -50,11 +53,12 @@ const STATUS_OPTIONS = [
 ];
 
 const TARGET_OPTIONS = [
-    { value: "целевой", label: "Целевой" },
+    RESET_OPTION,
+    { value: "Целевой", label: "Целевой" },
     { value: "СПАМ", label: "СПАМ" },
-    { value: "не было в такое время лида", label: "Не было в такое время лида" },
-    { value: "недозвон", label: "Недозвон" },
-    { value: "дубль", label: "Дубль" },
+    { value: "Не было в такое время лида", label: "Не было в такое время лида" },
+    { value: "Недозвон", label: "Недозвон" },
+    { value: "Дубль", label: "Дубль" },
 ];
 
 export default function LeadsPage() {
@@ -246,11 +250,14 @@ export default function LeadsPage() {
 
     // Generic inline update handler (optimistic)
     const handleInlineUpdate = async (rowIndex: number, field: string, value: string) => {
+        // Handle reset
+        const effectiveValue = value === '-' ? '' : value;
+
         const previousLeads = [...leads];
         setLeads((prev) =>
             prev.map((lead) =>
                 lead.rowIndex === rowIndex
-                    ? { ...lead, [field === 'target' ? 'Целевой' : 'qualification']: value }
+                    ? { ...lead, [field === 'target' ? 'Целевой' : 'qualification']: effectiveValue }
                     : lead
             )
         );
@@ -263,7 +270,7 @@ export default function LeadsPage() {
                     sheetName: currentSheet,
                     rowIndex,
                     field,
-                    value,
+                    value: effectiveValue,
                 }),
             });
 
@@ -529,7 +536,31 @@ export default function LeadsPage() {
                                                     <SelectContent>
                                                         {TARGET_OPTIONS.map((opt) => (
                                                             <SelectItem key={opt.value} value={opt.value}>
-                                                                {opt.label}
+                                                                {opt.value === '-' ? (
+                                                                    <span className="text-muted-foreground">-</span>
+                                                                ) : (
+                                                                    <span
+                                                                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                                                                        style={{
+                                                                            backgroundColor:
+                                                                                opt.value === 'Целевой' ? '#dcfce7' :
+                                                                                    opt.value === 'СПАМ' ? '#fee2e2' :
+                                                                                        opt.value === 'Дубль' ? '#fef3c7' :
+                                                                                            opt.value === 'Недозвон' ? '#dbeafe' :
+                                                                                                opt.value === 'Не было в такое время лида' ? '#fecaca' :
+                                                                                                    '#f3f4f6',
+                                                                            color:
+                                                                                opt.value === 'Целевой' ? '#166534' :
+                                                                                    opt.value === 'СПАМ' ? '#991b1b' :
+                                                                                        opt.value === 'Дубль' ? '#854d0e' :
+                                                                                            opt.value === 'Недозвон' ? '#1e40af' :
+                                                                                                opt.value === 'Не было в такое время лида' ? '#991b1b' :
+                                                                                                    '#6b7280'
+                                                                        }}
+                                                                    >
+                                                                        {opt.label}
+                                                                    </span>
+                                                                )}
                                                             </SelectItem>
                                                         ))}
                                                     </SelectContent>
@@ -537,7 +568,7 @@ export default function LeadsPage() {
                                             </TableCell>
                                             <TableCell>
                                                 <Select
-                                                    value={lead.qualification}
+                                                    value={lead.qualification || "-"}
                                                     onValueChange={(v) => handleInlineUpdate(lead.rowIndex, 'qualification', v)}
                                                 >
                                                     <SelectTrigger className="h-8 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0">
@@ -546,7 +577,7 @@ export default function LeadsPage() {
                                                     <SelectContent>
                                                         {STATUS_OPTIONS.map((status) => (
                                                             <SelectItem key={status.value} value={status.value}>
-                                                                <StatusBadge status={status.value} />
+                                                                {status.value === '-' ? "-" : <StatusBadge status={status.value} />}
                                                             </SelectItem>
                                                         ))}
                                                     </SelectContent>
