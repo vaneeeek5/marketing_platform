@@ -1,15 +1,39 @@
 steps:
-  # Build and deploy to Cloud Run
-  - name: 'gcr.io/cloud-builders/gcloud'
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/marketing-platform-486210/marketing-platform:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/marketing-platform-486210/marketing-platform:latest'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/marketing-platform-486210/marketing-platform:$COMMIT_SHA'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
       - 'marketing-platform'
-      - '--source=.'
-      - '--region=europe-central2'
-      - '--platform=managed'
+      - '--image'
+      - 'gcr.io/marketing-platform-486210/marketing-platform:$COMMIT_SHA'
+      - '--region'
+      - 'europe-central2'
+      - '--platform'
+      - 'managed'
       - '--allow-unauthenticated'
-      - '--set-env-vars=GOOGLE_SHEET_ID=1HUpmF9aG3UD9blHHsIhWQ8NPnPTeW36USgkrRVSh5Tg,GOOGLE_CLIENT_EMAIL=app-bot@marketing-platform-486210.iam.gserviceaccount.com,YANDEX_METRIKA_TOKEN=y0__xDfxb1gGNq_NyDAivKjFqYkr66aXNxZXnyS_T_w7GA7TD3F,YANDEX_COUNTER_ID=93215285'
-      - '--update-secrets=GOOGLE_PRIVATE_KEY=google-private-key:latest'
+      - '--set-env-vars'
+      - 'GOOGLE_SHEET_ID=1V9s3qmv1cEf-2BmCfGdkKHJfrCppXHHQxIQNz7vSl3c,GOOGLE_CLIENT_EMAIL=app-bot@marketing-platform-486210.iam.gserviceaccount.com,YANDEX_METRIKA_TOKEN=y0__xDfxb1gGNq_NyDAivKjFqYkr66aXNxZXnyS_T_w7GA7TD3F,YANDEX_COUNTER_ID=93215285'
+      - '--update-secrets'
+      - 'GOOGLE_PRIVATE_KEY=google-private-key:latest'
 
-timeout: '1600s'
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - 'gcr.io/marketing-platform-486210/marketing-platform:$COMMIT_SHA'
+  - 'gcr.io/marketing-platform-486210/marketing-platform:latest'
