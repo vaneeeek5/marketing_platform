@@ -18,16 +18,25 @@ const colorPalette = [
     'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
 ];
 
-export function getCampaignColor(campaignName: string): string {
-    if (!campaignName) return 'bg-gray-100 text-gray-800 border-gray-300 dark:bg-gray-800 dark:text-gray-300';
+export function getCampaignColor(campaignName: string | any): string {
+    const defaultColor = 'bg-gray-100 text-gray-800 border-gray-300 dark:bg-gray-800 dark:text-gray-300';
+    try {
+        if (!campaignName) return defaultColor;
 
-    // Генерируем хэш из названия
-    let hash = 0;
-    for (let i = 0; i < campaignName.length; i++) {
-        hash = campaignName.charCodeAt(i) + ((hash << 5) - hash);
+        const str = String(campaignName);
+        if (str.trim() === '') return defaultColor;
+
+        // Генерируем хэш из названия
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+
+        // Выбираем цвет из палитры
+        const index = Math.abs(hash) % colorPalette.length;
+        return colorPalette[index] || defaultColor;
+    } catch (e) {
+        console.error("Error generating campaign color:", e);
+        return defaultColor;
     }
-
-    // Выбираем цвет из палитры
-    const index = Math.abs(hash) % colorPalette.length;
-    return colorPalette[index];
 }
