@@ -3,55 +3,97 @@ import { getSheetData, updateRow } from "@/lib/googleSheets";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
 import * as XLSX from "xlsx";
 
-function timeToMinutes(timeString: string | number): number {
-    if (typeof timeString === 'number') {
-        // Excel serial time (fraction of day)
-        return Math.round(timeString * 24 * 60);
-    }
-    const str = String(timeString || "").trim();
-    if (!str) return 0;
+function parseExcelDate(dateStr: any): string | null {
+    // "01.12.2025" -> "2025-12-01"
+    if (!dateStr) return null;
 
-    // "14:53:33" -> 14*60 + 53 = 893 минут
+    const str = dateStr.toString().trim();
+
+    // Если формат "DD.MM.YYYY"
+    if (str.includes('.')) {
+        const [day, month, year] = str.split('.');
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+
+    // Если уже "YYYY-MM-DD"
+    return str;
+}
+
+function parseExcelTime(timeStr: any): string | null {
+    // "0:00:00" -> "00:00:00"
+    // "4:50:00" -> "04:50:00"
+    if (!timeStr && timeStr !== 0) return null;
+
+    const str = timeStr.toString().trim();
     const parts = str.split(':');
-    const hours = parseInt(parts[0] || "0", 10);
-    const minutes = parseInt(parts[1] || "0", 10);
+
+    if (parts.length === 3) {
+        const hours = parts[0].padStart(2, '0');
+        const minutes = parts[1].padStart(2, '0');
+        const seconds = parts[2].padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+    }
+
+    return str;
+}
+
+function normalizeTime(timeStr: any): number {
+    // "04:50:33" -> минуты от начала дня: 4*60 + 50 = 290
+    if (!timeStr && timeStr !== 0) return 0;
+
+    const normalized = parseExcelTime(timeStr);
+    if (!normalized) return 0;
+
+    // Check if normalized is valid string before split
+    const parts = normalized.split(':');
+    const hours = parseInt(parts[0]) || 0;
+    const minutes = parseInt(parts[1]) || 0;
     return hours * 60 + minutes;
 }
 
-function findMatchingLead(archiveLead: any, currentLeads: any[]) {
-    const archiveDate = archiveLead["Дата"] || archiveLead["Date"];
-    const archiveTime = archiveLead["Время"] || archiveLead["Time"];
-    const archiveCampaign = archiveLead["Кампания"] || archiveLead["Campaign"];
+function normalizeCampaign(campaign: any): string {
+    // "РСЯ" -> "рся", "МК" -> "мк"
+    return campaign?.toString().toLowerCase().trim() || "";
+}
 
-    if (!archiveDate || !archiveCampaign) return null;
+function findMatchingLead(excelLead: any, googleLeads: any[]) {
+    const excelDate = parseExcelDate(excelLead["Дата"]);
+    const excelTimeMinutes = normalizeTime(excelLead["Время"]);
+    const excelCampaign = normalizeCampaign(excelLead["Кампания"]);
 
-    // 1. ТОЧНОЕ СОВПАДЕНИЕ (приоритет 1)
-    let match = currentLeads.find(lead =>
-        String(lead["Дата"]).trim() === String(archiveDate).trim() &&
-        String(lead["Время"]).trim() === String(archiveTime).trim() &&
-        String(lead["Кампания"]).trim() === String(archiveCampaign).trim()
-    );
+    if (!excelDate) return null;
+
+    // Приоритет 1: Точное совпадение (дата + время + кампания)
+    let match = googleLeads.find(lead => {
+        if (parseExcelDate(lead["Дата"]) !== excelDate) return false;
+        if (normalizeCampaign(lead["Кампания"]) !== excelCampaign) return false;
+
+        const leadTimeMinutes = normalizeTime(lead["Время"]);
+        // Exact match in minutes (ignoring seconds roughly if minutes match? Or exact?)
+        // User requested: "Math.abs(leadTimeMinutes - excelTimeMinutes) === 0"
+        return Math.abs(leadTimeMinutes - excelTimeMinutes) === 0;
+    });
+
     if (match) return { lead: match, priority: 1 };
 
-    // 2. СОВПАДЕНИЕ С ПОГРЕШНОСТЬЮ ВРЕМЕНИ (приоритет 2)
-    const archiveTimeMinutes = timeToMinutes(archiveTime);
-    // Find all potential candidates first to pick best or just first?
-    // User logic: "match = currentLeads.find" -> first match.
-    match = currentLeads.find(lead => {
-        if (String(lead["Дата"]).trim() !== String(archiveDate).trim()) return false;
-        if (String(lead["Кампания"]).trim() !== String(archiveCampaign).trim()) return false;
+    // Приоритет 2: ±10 минут (дата + время±10мин + кампания)
+    match = googleLeads.find(lead => {
+        if (parseExcelDate(lead["Дата"]) !== excelDate) return false;
+        if (normalizeCampaign(lead["Кампания"]) !== excelCampaign) return false;
 
-        const leadTimeMinutes = timeToMinutes(lead["Время"]);
-        const diff = Math.abs(archiveTimeMinutes - leadTimeMinutes);
-        return diff <= 10;
+        const leadTimeMinutes = normalizeTime(lead["Время"]);
+        const diff = Math.abs(leadTimeMinutes - excelTimeMinutes);
+        return diff > 0 && diff <= 10;
     });
+
     if (match) return { lead: match, priority: 2 };
 
-    // 3. СОВПАДЕНИЕ ПО ДАТЕ И КАМПАНИИ (приоритет 3)
-    const sameDayCampaign = currentLeads.filter(lead =>
-        String(lead["Дата"]).trim() === String(archiveDate).trim() &&
-        String(lead["Кампания"]).trim() === String(archiveCampaign).trim()
+    // Приоритет 3: Единственный за день (дата + кампания, если только 1 лид)
+    const sameDayCampaign = googleLeads.filter(lead =>
+        parseExcelDate(lead["Дата"]) === excelDate &&
+        normalizeCampaign(lead["Кампания"]) === excelCampaign
     );
+
     if (sameDayCampaign.length === 1) {
         return { lead: sameDayCampaign[0], priority: 3 };
     }
@@ -72,10 +114,10 @@ export async function POST(req: NextRequest) {
         const workbook = XLSX.read(buffer, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+        const excelLeads = XLSX.utils.sheet_to_json(worksheet) as any[];
 
         // Fetch current sheet data
-        const currentRows = await getSheetData(CURRENT_MONTH_SHEET);
+        const googleLeads = await getSheetData(CURRENT_MONTH_SHEET);
 
         let matchedCount = 0;
         let p1Count = 0;
@@ -83,9 +125,12 @@ export async function POST(req: NextRequest) {
         let p3Count = 0;
         let notMatched = 0;
 
-        // Process sequentially to be safe with updates
-        for (const archiveLead of jsonData) {
-            const result = findMatchingLead(archiveLead, currentRows);
+        // Process sequentially
+        for (const excelLead of excelLeads) {
+            // Пропустить если нет целевого статуса (пустые строки) as per request
+            if (!excelLead["Целевой"]) continue;
+
+            const result = findMatchingLead(excelLead, googleLeads);
 
             if (result) {
                 // Update stats
@@ -95,35 +140,49 @@ export async function POST(req: NextRequest) {
                 else if (result.priority === 3) p3Count++;
 
                 // Prepare update
-                const newQual = archiveLead["Квалификация"] || archiveLead["Qualification"];
-                const newTarget = archiveLead["Целевой"] || archiveLead["Target"];
-                const newSum = archiveLead["Сумма продажи"] || archiveLead["Сумма"] || archiveLead["Amount"]; // "Сумма продажи" as per new request
+                const newQual = excelLead["Квалификация"];
+                const newTarget = excelLead["Целевой"];
+                // User said: "Не обновляем сумму продажи, если её нет в Excel"
+                // And in code example: only "Целевой" and "Квалификация" inside updateLeadInSheets
+                // But in text "Сумма продажи" was mentioned before. 
+                // Let's stick to the code example provided in the prompt:
+                // "Целевой": excelLead["Целевой"], "Квалификация": excelLead["Квалификация"]
 
                 const update: any = {};
-                // Only update if value exists in archive
                 if (newQual !== undefined) update["Квалификация"] = newQual;
                 if (newTarget !== undefined) update["Целевой"] = newTarget;
-                if (newSum !== undefined) update["Сумма продажи"] = newSum; // Using correct column name from previous task
 
-                // Also support old column "Сумма" if needed? User specifically asked for "Сумма продажи" in previous Task 15.
-                // But in this prompt user code had: "Сумма продажи": archiveLead["Сумма продажи"]
+                // Let's add sales if present just in case, consistent with previous task, unless explicitly forbidden?
+                // The prompt says: "Не обновляем сумму продажи, если её нет в Excel" -> implied update if present.
+                if (excelLead["Сумма продажи"] !== undefined) {
+                    update["Сумма продажи"] = excelLead["Сумма продажи"];
+                }
 
                 if (Object.keys(update).length > 0) {
                     await updateRow(CURRENT_MONTH_SHEET, result.lead.rowIndex, update);
+                    console.log(`✓ Сверено (приоритет ${result.priority}): ${excelLead["Дата"]} ${excelLead["Время"]} ${excelLead["Кампания"]}`);
                 }
             } else {
                 notMatched++;
+                console.log(`✗ НЕ НАЙДЕНО: ${excelLead["Дата"]} ${excelLead["Время"]} ${excelLead["Кампания"]}`);
             }
         }
 
         return NextResponse.json({
             success: true,
-            uploaded: jsonData.length,
+            total: excelLeads.length,
+            uploaded: excelLeads.length,
             matched: matchedCount,
+            notMatched: excelLeads.length - matchedCount, // Consistent with prompt code
+            breakdown: {
+                exact: p1Count,
+                timeRange: p2Count, // Renamed to timeRange as per prompt
+                singleDay: p3Count  // Renamed to singleDay as per prompt
+            },
+            // Keep old keys for backward compatibility if frontend uses them
             priority1: p1Count,
             priority2: p2Count,
-            priority3: p3Count,
-            notMatched: notMatched
+            priority3: p3Count
         });
 
     } catch (error) {
