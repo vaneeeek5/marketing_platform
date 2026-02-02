@@ -58,6 +58,7 @@ const TARGET_OPTIONS = [
 ];
 
 export default function LeadsPage() {
+    console.log("Leads page mounting...");
     // ... state ...
     const [leads, setLeads] = useState<Lead[]>([]);
     const [filteredLeads, setFilteredLeads] = useState<Lead[]>([]);
@@ -153,16 +154,28 @@ export default function LeadsPage() {
     };
 
     const fetchLeads = useCallback(async () => {
-        // ... implementation same ...
         if (!currentSheet) return;
 
+        console.log("Leads page: Starting fetch...", { sheet: currentSheet });
         setLoading(true);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
         try {
             const response = await fetch(
-                `/api/leads?sheet=${encodeURIComponent(currentSheet)}`
+                `/api/leads?sheet=${encodeURIComponent(currentSheet)}`,
+                { signal: controller.signal }
             );
-            if (!response.ok) throw new Error("Ошибка загрузки данных");
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Leads fetch failed:", response.status, errorText);
+                throw new Error(`Ошибка загрузки данных: ${response.status}`);
+            }
+
             const result: LeadsResponse = await response.json();
+            console.log("Leads fetched successfully:", result.leads.length);
             setLeads(result.leads);
 
             // Extract unique campaigns
@@ -171,8 +184,15 @@ export default function LeadsPage() {
             );
             setCampaigns(uniqueCampaigns);
             setError(null);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Неизвестная ошибка");
+        } catch (err: any) {
+            console.error("Leads fetch error:", err);
+            if (err.name === 'AbortError') {
+                setError("Превышено время ожидания загрузки (timeout 15s). Попробуйте обновить страницу.");
+                toast.error("Слишком долгая загрузка");
+            } else {
+                setError(err instanceof Error ? err.message : "Неизвестная ошибка");
+                toast.error("Не удалось загрузить лиды");
+            }
         } finally {
             setLoading(false);
         }
