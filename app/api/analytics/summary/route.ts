@@ -177,10 +177,24 @@ export async function GET(request: NextRequest) {
         filteredData.forEach((row) => {
             totalLeads++;
 
-            const qualification = String(row[COLUMN_NAMES.QUALIFICATION] || "");
-            const salesValue = row[COLUMN_NAMES.SALES];
             const campaign = String(row[COLUMN_NAMES.CAMPAIGN] || "Другое");
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
+
+            // --- Custom Logic per User Request ---
+
+            // 1. Target (Целевой) - Column F
+            const targetVal = String(row["Целевой"] || "").trim().toLowerCase();
+            const isTarget = targetVal === "целевой" || targetVal === "целевая" || targetVal === "да" || targetVal === "+";
+
+            // 2. Qualified (Квалификация) - Column G
+            const qualVal = String(row["Квалификация"] || "").trim().toLowerCase(); // Using string literal to be safe
+            const isQualified = qualVal === "квал" || qualVal === "квалифицированный";
+
+            // 3. Sales (Сумма продажи) - Column H
+            const salesRaw = row["Сумма продажи"];
+            const isSales = salesRaw && String(salesRaw).trim() !== "" && String(salesRaw) !== "0";
+
+            // --- End Custom Logic ---
 
             // Metrika Stats
             const goal = String(row["Цель"] || "").trim();
@@ -201,19 +215,19 @@ export async function GET(request: NextRequest) {
             campaignStatsMap[campaign].total++;
 
             // Подсчёт целевых
-            if (isTargetLead(qualification)) {
+            if (isTarget) {
                 targetLeads++;
                 campaignStatsMap[campaign].target++;
             }
 
             // Подсчёт квалифицированных
-            if (isQualifiedLead(qualification)) {
+            if (isQualified) {
                 qualifiedLeads++;
                 campaignStatsMap[campaign].qualified++;
             }
 
             // Подсчёт продаж
-            if (isSale(salesValue as string | number)) {
+            if (isSales) {
                 sales++;
                 campaignStatsMap[campaign].sales++;
             }
@@ -227,10 +241,10 @@ export async function GET(request: NextRequest) {
                     weeklyData[weekKey] = { leads: 0, targetLeads: 0, sales: 0 };
                 }
                 weeklyData[weekKey].leads++;
-                if (isTargetLead(qualification)) {
+                if (isTarget) {
                     weeklyData[weekKey].targetLeads++;
                 }
-                if (isSale(salesValue as string | number)) {
+                if (isSales) {
                     weeklyData[weekKey].sales++;
                 }
             }
