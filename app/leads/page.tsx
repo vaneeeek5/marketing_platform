@@ -37,6 +37,7 @@ import {
     Calendar,
     ArrowUpDown,
     CopyCheck,
+    RefreshCw,
 } from "lucide-react";
 
 const STATUS_OPTIONS = [
@@ -104,6 +105,28 @@ export default function LeadsPage() {
             return 0;
         });
     }, [filteredLeads, sortConfig]);
+
+    const handleSyncLatest = async () => {
+        const toastId = toast.loading("Обновление данных...");
+        try {
+            const response = await fetch("/api/metrika/sync-latest", {
+                method: "POST",
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                toast.dismiss(toastId);
+                successNotification(`Добавлено ${result.added} новых лидов`);
+                fetchLeads();
+            } else {
+                toast.dismiss(toastId);
+                toast.error("Ошибка обновления: " + result.error);
+            }
+        } catch (err) {
+            toast.dismiss(toastId);
+            toast.error("Ошибка при выполнении запроса");
+        }
+    };
 
     const handleCheckDuplicates = async () => {
         const toastId = toast.loading("Проверка дублей...");
