@@ -122,8 +122,8 @@ export function parseDate(dateStr: string | number): Date | null {
 
 // Проверка является ли значение целевым лидом
 export function isTargetLead(qualification: string): boolean {
-    const q = qualification?.toLowerCase() || "";
-    return q.includes("целевой") || q.includes("target");
+    const q = (qualification || "").toString().toLowerCase().trim();
+    return q === "целевой" || q === "target" || q.includes("целевой");
 }
 
 // Проверка является ли значение квалифицированным лидом

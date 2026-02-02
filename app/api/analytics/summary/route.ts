@@ -139,6 +139,14 @@ export async function GET(request: NextRequest) {
             return true;
         });
 
+        // DEBUG: Log first row and total count
+        console.log(`[Analytics] Total rows: ${allData.length}, Filtered: ${filteredData.length}`);
+        if (filteredData.length > 0) {
+            console.log("[Analytics] First row sample:", JSON.stringify(filteredData[0], null, 2));
+            const qualSample = filteredData[0][COLUMN_NAMES.QUALIFICATION];
+            console.log(`[Analytics] Sample Qualification: '${qualSample}' (isTarget: ${isTargetLead(String(qualSample))})`);
+        }
+
         // Подсчёт KPI
         let totalLeads = 0;
         let targetLeads = 0;
