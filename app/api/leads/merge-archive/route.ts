@@ -44,7 +44,6 @@ function normalizeTime(timeStr: any): number {
     const normalized = parseExcelTime(timeStr);
     if (!normalized) return 0;
 
-    // Check if normalized is valid string before split
     const parts = normalized.split(':');
     const hours = parseInt(parts[0]) || 0;
     const minutes = parseInt(parts[1]) || 0;
@@ -69,8 +68,6 @@ function findMatchingLead(excelLead: any, googleLeads: any[]) {
         if (normalizeCampaign(lead["Кампания"]) !== excelCampaign) return false;
 
         const leadTimeMinutes = normalizeTime(lead["Время"]);
-        // Exact match in minutes (ignoring seconds roughly if minutes match? Or exact?)
-        // User requested: "Math.abs(leadTimeMinutes - excelTimeMinutes) === 0"
         return Math.abs(leadTimeMinutes - excelTimeMinutes) === 0;
     });
 
@@ -114,9 +111,11 @@ export async function POST(req: NextRequest) {
         const workbook = XLSX.read(buffer, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const excelLeads = XLSX.utils.sheet_to_json(worksheet) as any[];
 
-        // Fetch current sheet data
+        // Use raw: false to ensure we get formatted strings for Date/Time
+        const excelLeads = XLSX.utils.sheet_to_json(worksheet, { raw: false }) as any[];
+
+        // Получить текущие лиды из Google Sheets
         const googleLeads = await getSheetData(CURRENT_MONTH_SHEET);
 
         let matchedCount = 0;
@@ -125,9 +124,8 @@ export async function POST(req: NextRequest) {
         let p3Count = 0;
         let notMatched = 0;
 
-        // Process sequentially
         for (const excelLead of excelLeads) {
-            // Пропустить если нет целевого статуса (пустые строки) as per request
+            // Пропустить если нет целевого статуса (пустые строки)
             if (!excelLead["Целевой"]) continue;
 
             const result = findMatchingLead(excelLead, googleLeads);
@@ -142,18 +140,11 @@ export async function POST(req: NextRequest) {
                 // Prepare update
                 const newQual = excelLead["Квалификация"];
                 const newTarget = excelLead["Целевой"];
-                // User said: "Не обновляем сумму продажи, если её нет в Excel"
-                // And in code example: only "Целевой" and "Квалификация" inside updateLeadInSheets
-                // But in text "Сумма продажи" was mentioned before. 
-                // Let's stick to the code example provided in the prompt:
-                // "Целевой": excelLead["Целевой"], "Квалификация": excelLead["Квалификация"]
 
                 const update: any = {};
                 if (newQual !== undefined) update["Квалификация"] = newQual;
                 if (newTarget !== undefined) update["Целевой"] = newTarget;
 
-                // Let's add sales if present just in case, consistent with previous task, unless explicitly forbidden?
-                // The prompt says: "Не обновляем сумму продажи, если её нет в Excel" -> implied update if present.
                 if (excelLead["Сумма продажи"] !== undefined) {
                     update["Сумма продажи"] = excelLead["Сумма продажи"];
                 }
@@ -171,18 +162,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             success: true,
             total: excelLeads.length,
-            uploaded: excelLeads.length,
             matched: matchedCount,
-            notMatched: excelLeads.length - matchedCount, // Consistent with prompt code
+            notMatched: excelLeads.length - matchedCount,
             breakdown: {
                 exact: p1Count,
-                timeRange: p2Count, // Renamed to timeRange as per prompt
-                singleDay: p3Count  // Renamed to singleDay as per prompt
-            },
-            // Keep old keys for backward compatibility if frontend uses them
-            priority1: p1Count,
-            priority2: p2Count,
-            priority3: p3Count
+                timeRange: p2Count,
+                singleDay: p3Count
+            }
         });
 
     } catch (error) {
