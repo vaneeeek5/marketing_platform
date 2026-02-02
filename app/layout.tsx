@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
@@ -37,6 +38,7 @@ export default function RootLayout({
                             <div className="p-6">{children}</div>
                         </main>
                     </div>
+                    <Toaster position="top-right" closeButton />
                 </ThemeProvider>
             </body>
         </html>

@@ -1,5 +1,8 @@
 "use client";
 
+import { toast } from "sonner";
+import { successNotification } from "@/lib/notifications";
+
 import { useEffect, useState, useCallback } from "react";
 import {
     Table,
@@ -168,9 +171,10 @@ export default function LeadsPage() {
             });
 
             if (!response.ok) throw new Error("Ошибка обновления");
+            successNotification("Статус обновлен");
         } catch (err) {
             setLeads(previousLeads);
-            alert("Ошибка при обновлении");
+            toast.error("Ошибка при обновлении статуса");
         }
     };
 
@@ -219,8 +223,9 @@ export default function LeadsPage() {
             );
 
             setEditingRow(null);
+            successNotification("Изменения сохранены");
         } catch (err) {
-            alert("Ошибка сохранения");
+            toast.error("Ошибка сохранения");
         } finally {
             setSaving(false);
         }

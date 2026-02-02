@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { KPICard } from "@/components/kpi-card";
 import { LeadsTrendChart } from "@/components/charts/leads-trend-chart";
 import { RecommendationsWidget } from "@/components/recommendations-widget";
@@ -57,7 +58,11 @@ export default function DashboardPage() {
             setData(result);
             setError(null);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Неизвестная ошибка");
+            const message = err instanceof Error ? err.message : "Неизвестная ошибка";
+            setError(message);
+            toast.error("Не удалось загрузить данные", {
+                description: message,
+            });
         } finally {
             setLoading(false);
         }
@@ -162,13 +167,6 @@ export default function DashboardPage() {
                     subtitle={`${kpi.qualifiedPercent.toFixed(1)}% от общего`}
                     icon={Award}
                     variant="warning"
-                />
-                <KPICard
-                    title="Продажи"
-                    value={formatNumber(kpi.sales)}
-                    subtitle={`Конверсия: ${kpi.conversionRate.toFixed(1)}%`}
-                    icon={ShoppingCart}
-                    variant="success"
                 />
                 <KPICard
                     title="Продажи"
