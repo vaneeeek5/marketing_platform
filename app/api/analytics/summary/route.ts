@@ -74,6 +74,18 @@ async function getSheetsForPeriod(
         });
     }
 
+    if (period === "custom") {
+        // For custom period, we ideally check the requested range. 
+        // For now, simpler to fetch all potential sheets or let's be safe and fetch all.
+        // Optimization: parse startDate/endDate and filter sheets.
+        // But start/end aren't passed to this helper yet.
+        // Let's assume user works within current context or we fetch "enough".
+        // fetching ALL might be slow but safe.
+        // Let's fetch all for simplicity to ensure we don't miss data. 
+        // User probably won't span 10 years.
+        return allSheets;
+    }
+
     return [currentSheet];
 }
 
@@ -136,6 +148,22 @@ export async function GET(request: NextRequest) {
             if (period === "year") {
                 return targetDate.getFullYear() === today.getFullYear();
             }
+
+            if (period === "custom") {
+                const startDateStr = searchParams.get("startDate");
+                const endDateStr = searchParams.get("endDate");
+
+                if (!startDateStr || !endDateStr) return true; // Fallback to showing everything if dates missing? Or today?
+
+                const startDate = new Date(startDateStr);
+                const endDate = new Date(endDateStr);
+                // Set end of day for endDate
+                endDate.setHours(23, 59, 59, 999);
+                startDate.setHours(0, 0, 0, 0);
+
+                return targetDate >= startDate && targetDate <= endDate;
+            }
+
             return true;
         });
 

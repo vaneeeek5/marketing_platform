@@ -27,6 +27,11 @@ import {
 } from "lucide-react";
 import { AnalyticsResponse } from "@/types";
 import { formatNumber, formatCurrency } from "@/lib/utils";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { ru } from 'date-fns/locale';
+import { registerLocale } from "react-datepicker";
+registerLocale('ru', ru);
 
 type PeriodType = "week" | "month" | "quarter" | "year";
 
@@ -35,6 +40,7 @@ const PERIOD_OPTIONS = [
     { value: "month", label: "Месяц" },
     { value: "quarter", label: "Квартал" },
     { value: "year", label: "Год" },
+    { value: "custom", label: "Период" },
 ] as const;
 
 export default function DashboardPage() {
@@ -42,7 +48,9 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [currentSheet] = useState("Лиды");
-    const [period, setPeriod] = useState<PeriodType>("month");
+    const [period, setPeriod] = useState<string>("month");
+    const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
+    const [startDate, endDate] = dateRange;
 
     // fetchSheets removed as we use single sheet
 
@@ -50,9 +58,12 @@ export default function DashboardPage() {
         // currentSheet always exists
         setLoading(true);
         try {
-            const response = await fetch(
-                `/api/analytics/summary?sheet=${encodeURIComponent(currentSheet)}&period=${period}`
-            );
+            let url = `/api/analytics/summary?sheet=${encodeURIComponent(currentSheet)}&period=${period}`;
+            if (period === "custom" && startDate && endDate) {
+                url += `&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`;
+            }
+
+            const response = await fetch(url);
             if (!response.ok) throw new Error("Ошибка загрузки данных");
             const result = await response.json();
             setData(result);
@@ -120,8 +131,26 @@ export default function DashboardPage() {
 
                     {/* Period selector */}
                     <div className="flex items-center gap-2">
+                        {period === "custom" && (
+                            <div className="relative z-50">
+                                <DatePicker
+                                    selectsRange={true}
+                                    startDate={startDate}
+                                    endDate={endDate}
+                                    onChange={(update: [Date | null, Date | null]) => {
+                                        setDateRange(update);
+                                    }}
+                                    isClearable={true}
+                                    locale="ru"
+                                    dateFormat="dd.MM.yyyy"
+                                    placeholderText="Выберите даты"
+                                    className="h-10 w-[220px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                />
+                            </div>
+                        )}
+
                         <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                        <Select value={period} onValueChange={(v) => setPeriod(v as PeriodType)}>
+                        <Select value={period} onValueChange={(v) => setPeriod(v)}>
                             <SelectTrigger className="w-[140px]">
                                 <SelectValue />
                             </SelectTrigger>
