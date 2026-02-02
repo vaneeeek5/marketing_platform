@@ -62,7 +62,7 @@ export function Sidebar() {
                         <TrendingUp className="h-5 w-5 text-white" />
                     </div>
                     <div>
-                        <h1 className="text-lg font-bold text-white">Аналитика</h1>
+                        <h1 className="text-lg font-bold text-white">БЫТЬ</h1>
                         <p className="text-xs text-slate-400">Маркетинговая платформа</p>
                     </div>
                 </div>
@@ -103,8 +103,7 @@ export function Sidebar() {
                 {/* Footer */}
                 <div className="absolute bottom-0 left-0 right-0 border-t border-slate-700/50 p-4">
                     <div className="rounded-xl bg-slate-800/50 p-4">
-                        <p className="text-xs text-slate-400">Текущий лист</p>
-                        <p className="text-sm font-medium text-white">Январь 2026</p>
+                        <p className="text-sm font-medium text-white">Epicarwash</p>
                     </div>
                 </div>
             </aside>

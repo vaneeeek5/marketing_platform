@@ -25,7 +25,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { Lead, LeadsResponse } from "@/types";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
-import { formatDate, formatTime } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { getCampaignColor } from "@/lib/campaign-colors";
 import {
     Loader2,
 
@@ -468,9 +469,9 @@ export default function LeadsPage() {
                                             </TableCell>
                                             <TableCell>{formatTime(lead.time)}</TableCell>
                                             <TableCell>
-                                                <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                                                <Badge variant="secondary" className={getCampaignColor(lead.campaign)}>
                                                     {lead.campaign || "—"}
-                                                </span>
+                                                </Badge>
                                             </TableCell>
                                             <TableCell>
                                                 <Select
