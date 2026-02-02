@@ -36,6 +36,7 @@ import {
     Users,
     Calendar,
     ArrowUpDown,
+    CopyCheck,
 } from "lucide-react";
 
 const STATUS_OPTIONS = [
@@ -103,6 +104,28 @@ export default function LeadsPage() {
             return 0;
         });
     }, [filteredLeads, sortConfig]);
+
+    const handleCheckDuplicates = async () => {
+        const toastId = toast.loading("Проверка дублей...");
+        try {
+            const response = await fetch("/api/leads/check-duplicates", {
+                method: "POST",
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                toast.dismiss(toastId);
+                successNotification(result.message);
+                fetchLeads();
+            } else {
+                toast.dismiss(toastId);
+                toast.error("Ошибка проверки: " + result.error);
+            }
+        } catch (err) {
+            toast.dismiss(toastId);
+            toast.error("Ошибка при выполнении запроса");
+        }
+    };
 
     const fetchLeads = useCallback(async () => {
         // ... implementation same ...
@@ -358,10 +381,19 @@ export default function LeadsPage() {
                 </CardContent>
             </Card>
 
-            {/* Stats */}
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Users className="h-4 w-4" />
-                Показано {filteredLeads.length} из {leads.length} лидов
+            {/* Actions & Stats */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 my-4">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Users className="h-4 w-4" />
+                    Показано {filteredLeads.length} из {leads.length} лидов
+                </div>
+
+                <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleCheckDuplicates} disabled={loading}>
+                        <CopyCheck className="mr-2 h-4 w-4" />
+                        Сверка по дублям
+                    </Button>
+                </div>
             </div>
 
             {/* Table */}
