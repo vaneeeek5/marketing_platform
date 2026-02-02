@@ -100,6 +100,45 @@ export async function GET(request: NextRequest) {
 
         const budgetData = await getBudgetData();
 
+        // Filter data by period
+        const filteredData = allData.filter(row => {
+            if (period === "all") return true;
+
+            const dateStr = row[COLUMN_NAMES.DATE];
+            const date = parseDate(dateStr as string | number);
+            if (!date) return false;
+
+            const now = new Date();
+            // Reset hours for comparison
+            const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+            if (period === "today") {
+                return targetDate.getTime() === today.getTime();
+            }
+            if (period === "week") {
+                const weekAgo = new Date(today);
+                weekAgo.setDate(today.getDate() - 7);
+                return targetDate >= weekAgo && targetDate <= today;
+            }
+            if (period === "month") {
+                return targetDate.getMonth() === today.getMonth() &&
+                    targetDate.getFullYear() === today.getFullYear();
+            }
+            if (period === "quarter") {
+                const currentMonth = today.getMonth();
+                const targetMonth = targetDate.getMonth();
+                // Simple quarter check
+                const qCurrent = Math.floor(currentMonth / 3);
+                const qTarget = Math.floor(targetMonth / 3);
+                return qCurrent === qTarget && targetDate.getFullYear() === today.getFullYear();
+            }
+            if (period === "year") {
+                return targetDate.getFullYear() === today.getFullYear();
+            }
+            return true;
+        });
+
         // Подсчёт KPI
         let totalLeads = 0;
         let targetLeads = 0;
@@ -123,13 +162,24 @@ export async function GET(request: NextRequest) {
             { leads: number; targetLeads: number; sales: number }
         > = {};
 
-        allData.forEach((row) => {
+        // Calculate Metrika Stats
+        const byGoal: Record<string, number> = {};
+        let metrikaTotal = 0;
+
+        filteredData.forEach((row) => {
             totalLeads++;
 
             const qualification = String(row[COLUMN_NAMES.QUALIFICATION] || "");
             const salesValue = row[COLUMN_NAMES.SALES];
             const campaign = String(row[COLUMN_NAMES.CAMPAIGN] || "Другое");
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
+
+            // Metrika Stats
+            const goal = String(row["Цель"] || "").trim();
+            if (goal) {
+                metrikaTotal++;
+                byGoal[goal] = (byGoal[goal] || 0) + 1;
+            }
 
             // Инициализация статистики кампании
             if (!campaignStatsMap[campaign]) {
@@ -175,19 +225,6 @@ export async function GET(request: NextRequest) {
                 if (isSale(salesValue as string | number)) {
                     weeklyData[weekKey].sales++;
                 }
-            }
-        });
-
-        // Calculate Metrika Stats from the same data
-        const byGoal: Record<string, number> = {};
-        let metrikaTotal = 0;
-
-        allData.forEach((row) => {
-            // Check if it's a Metrika lead (has "Цель")
-            const goal = String(row["Цель"] || "").trim();
-            if (goal) {
-                metrikaTotal++;
-                byGoal[goal] = (byGoal[goal] || 0) + 1;
             }
         });
 

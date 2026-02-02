@@ -81,20 +81,40 @@ export function getWeekNumber(date: Date): number {
     return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
 }
 
-// Парсинг даты из строки формата YYYY-MM-DD или DD.MM.YYYY
-export function parseDate(dateStr: string): Date | null {
+// Парсинг даты из строки формата YYYY-MM-DD, DD.MM.YYYY или Excel Serial
+export function parseDate(dateStr: string | number): Date | null {
     if (!dateStr) return null;
 
+    // Excel Serial Date (e.g. 45326)
+    // 25569 is offset between Excel (1900-01-01) and Unix (1970-01-01) in days
+    // 86400 * 1000 is milliseconds per day
+    // Excel leap year bug 1900 is ignored usually
+    const num = Number(dateStr);
+    if (!isNaN(num) && num > 20000 && !String(dateStr).includes("-") && !String(dateStr).includes(".")) {
+        const utc_days = Math.floor(num - 25569);
+        const utc_value = utc_days * 86400;
+        const date_info = new Date(utc_value * 1000);
+        return date_info;
+    }
+
+    const str = String(dateStr);
+
     // Попробуем YYYY-MM-DD
-    if (dateStr.includes("-")) {
-        const date = new Date(dateStr);
+    if (str.includes("-")) {
+        const date = new Date(str);
         if (!isNaN(date.getTime())) return date;
     }
 
     // Попробуем DD.MM.YYYY
-    if (dateStr.includes(".")) {
-        const [day, month, year] = dateStr.split(".").map(Number);
-        return new Date(year, month - 1, day);
+    if (str.includes(".")) {
+        const parts = str.split(".");
+        // Check parts length
+        if (parts.length === 3) {
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10);
+            const year = parseInt(parts[2], 10);
+            return new Date(year, month - 1, day);
+        }
     }
 
     return null;
