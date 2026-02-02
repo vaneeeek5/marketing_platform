@@ -21,9 +21,33 @@ export function formatDate(dateStr: string): string {
 }
 
 // Форматирование времени
-export function formatTime(timeStr: string): string {
-    if (!timeStr) return "";
-    return timeStr.slice(0, 5); // HH:MM
+// Форматирование времени
+export function formatTime(time: string | number): string {
+    if (!time) return "";
+
+    // Если пришло "4:53:" или дробное число (Excel serial time)
+    if (typeof time === 'number') {
+        // Конвертируем Excel serial time в HH:MM:SS
+        const totalSeconds = Math.round(time * 24 * 60 * 60);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    // Если строка "4:53:" - дополняем секундами (или просто парсим)
+    if (typeof time === 'string') {
+        // Очистка от лишних символов если нужно, но пока просто сплит
+        const parts = time.split(':');
+        // Если уже HH:MM:SS, просто вернем
+        // Если HH:MM, дополним
+        const h = parts[0]?.padStart(2, '0') || '00';
+        const m = parts[1]?.padStart(2, '0') || '00';
+        const s = parts[2]?.padStart(2, '0') || '00';
+        return `${h}:${m}:${s}`;
+    }
+
+    return "00:00:00";
 }
 
 // Форматирование числа с разделителями
