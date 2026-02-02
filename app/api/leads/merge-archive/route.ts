@@ -3,6 +3,62 @@ import { getSheetData, updateRow } from "@/lib/googleSheets";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
 import * as XLSX from "xlsx";
 
+function timeToMinutes(timeString: string | number): number {
+    if (typeof timeString === 'number') {
+        // Excel serial time (fraction of day)
+        return Math.round(timeString * 24 * 60);
+    }
+    const str = String(timeString || "").trim();
+    if (!str) return 0;
+
+    // "14:53:33" -> 14*60 + 53 = 893 минут
+    const parts = str.split(':');
+    const hours = parseInt(parts[0] || "0", 10);
+    const minutes = parseInt(parts[1] || "0", 10);
+    return hours * 60 + minutes;
+}
+
+function findMatchingLead(archiveLead: any, currentLeads: any[]) {
+    const archiveDate = archiveLead["Дата"] || archiveLead["Date"];
+    const archiveTime = archiveLead["Время"] || archiveLead["Time"];
+    const archiveCampaign = archiveLead["Кампания"] || archiveLead["Campaign"];
+
+    if (!archiveDate || !archiveCampaign) return null;
+
+    // 1. ТОЧНОЕ СОВПАДЕНИЕ (приоритет 1)
+    let match = currentLeads.find(lead =>
+        String(lead["Дата"]).trim() === String(archiveDate).trim() &&
+        String(lead["Время"]).trim() === String(archiveTime).trim() &&
+        String(lead["Кампания"]).trim() === String(archiveCampaign).trim()
+    );
+    if (match) return { lead: match, priority: 1 };
+
+    // 2. СОВПАДЕНИЕ С ПОГРЕШНОСТЬЮ ВРЕМЕНИ (приоритет 2)
+    const archiveTimeMinutes = timeToMinutes(archiveTime);
+    // Find all potential candidates first to pick best or just first?
+    // User logic: "match = currentLeads.find" -> first match.
+    match = currentLeads.find(lead => {
+        if (String(lead["Дата"]).trim() !== String(archiveDate).trim()) return false;
+        if (String(lead["Кампания"]).trim() !== String(archiveCampaign).trim()) return false;
+
+        const leadTimeMinutes = timeToMinutes(lead["Время"]);
+        const diff = Math.abs(archiveTimeMinutes - leadTimeMinutes);
+        return diff <= 10;
+    });
+    if (match) return { lead: match, priority: 2 };
+
+    // 3. СОВПАДЕНИЕ ПО ДАТЕ И КАМПАНИИ (приоритет 3)
+    const sameDayCampaign = currentLeads.filter(lead =>
+        String(lead["Дата"]).trim() === String(archiveDate).trim() &&
+        String(lead["Кампания"]).trim() === String(archiveCampaign).trim()
+    );
+    if (sameDayCampaign.length === 1) {
+        return { lead: sameDayCampaign[0], priority: 3 };
+    }
+
+    return null;
+}
+
 export async function POST(req: NextRequest) {
     try {
         const formData = await req.formData();
@@ -21,66 +77,54 @@ export async function POST(req: NextRequest) {
         // Fetch current sheet data
         const currentRows = await getSheetData(CURRENT_MONTH_SHEET);
 
-        let updatedCount = 0;
-        const updates = [];
+        let matchedCount = 0;
+        let p1Count = 0;
+        let p2Count = 0;
+        let p3Count = 0;
+        let notMatched = 0;
 
-        // Build Map of current rows for fast lookup
-        // Key: Date + Time
-        const currentMap = new Map<string, number>(); // Key -> RowIndex
-        currentRows.forEach(row => {
-            // Normalize Date/Time
-            const d = row["Дата"]?.toString().trim();
-            const t = row["Время"]?.toString().trim();
-            if (d && t) {
-                // Time from Sheet might be "14:30:00". Archive might be "14:30:00" or excel serial.
-                // We assume Archive is properly formatted or we normalize.
-                // Ideally we normalize both.
-                // For now exact match string.
-                currentMap.set(`${d}|${t}`, row.rowIndex);
-            }
-        });
+        // Process sequentially to be safe with updates
+        for (const archiveLead of jsonData) {
+            const result = findMatchingLead(archiveLead, currentRows);
 
-        for (const row of jsonData) {
-            // Archive Row Keys
-            // "Дата", "Время"
-            // "Квалификация", "Целевой" to update.
-            // Check if archive has these columns.
-            // Assumption: Archive headers match.
+            if (result) {
+                // Update stats
+                matchedCount++;
+                if (result.priority === 1) p1Count++;
+                else if (result.priority === 2) p2Count++;
+                else if (result.priority === 3) p3Count++;
 
-            const date = row["Дата"] || row["Date"]; // flexible
-            const time = row["Время"] || row["Time"];
-
-            if (!date || !time) continue;
-
-            const key = `${date}|${time}`;
-            const targetRowIndex = currentMap.get(key);
-
-            if (targetRowIndex) {
-                // Found match. Prepare update.
-                const newQual = row["Квалификация"] || row["Qualification"];
-                const newTarget = row["Целевой"] || row["Target"];
-                const newSum = row["Сумма"] || row["Amount"];
+                // Prepare update
+                const newQual = archiveLead["Квалификация"] || archiveLead["Qualification"];
+                const newTarget = archiveLead["Целевой"] || archiveLead["Target"];
+                const newSum = archiveLead["Сумма продажи"] || archiveLead["Сумма"] || archiveLead["Amount"]; // "Сумма продажи" as per new request
 
                 const update: any = {};
-                if (newQual) update["Квалификация"] = newQual;
-                if (newTarget) update["Целевой"] = newTarget;
-                if (newSum) update["Сумма"] = newSum;
+                // Only update if value exists in archive
+                if (newQual !== undefined) update["Квалификация"] = newQual;
+                if (newTarget !== undefined) update["Целевой"] = newTarget;
+                if (newSum !== undefined) update["Сумма продажи"] = newSum; // Using correct column name from previous task
+
+                // Also support old column "Сумма" if needed? User specifically asked for "Сумма продажи" in previous Task 15.
+                // But in this prompt user code had: "Сумма продажи": archiveLead["Сумма продажи"]
 
                 if (Object.keys(update).length > 0) {
-                    // We can't batch update rows easily with current lib?
-                    // `updateRow` is single.
-                    // We will iterate updates. 
-                    // IMPORTANT: Current `lib/googleSheets` caches. 
-                    // We should be careful with many updates.
-                    // But for "Archive Import", it might be rare.
-                    // We'll proceed with serial updates.
-                    await updateRow(CURRENT_MONTH_SHEET, targetRowIndex, update);
-                    updatedCount++;
+                    await updateRow(CURRENT_MONTH_SHEET, result.lead.rowIndex, update);
                 }
+            } else {
+                notMatched++;
             }
         }
 
-        return NextResponse.json({ success: true, updated: updatedCount });
+        return NextResponse.json({
+            success: true,
+            uploaded: jsonData.length,
+            matched: matchedCount,
+            priority1: p1Count,
+            priority2: p2Count,
+            priority3: p3Count,
+            notMatched: notMatched
+        });
 
     } catch (error) {
         console.error("Archive merge error:", error);
