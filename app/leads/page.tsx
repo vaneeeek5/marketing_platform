@@ -3,7 +3,7 @@
 import { toast } from "sonner";
 import { successNotification } from "@/lib/notifications";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
     Table,
     TableBody,
@@ -35,6 +35,7 @@ import {
     Search,
     Users,
     Calendar,
+    ArrowUpDown,
 } from "lucide-react";
 
 const STATUS_OPTIONS = [
@@ -74,6 +75,34 @@ export default function LeadsPage() {
         sales: string;
     }>({ qualification: "", comment: "", sales: "" });
     const [saving, setSaving] = useState(false);
+
+    // Sorting
+    const [sortConfig, setSortConfig] = useState<{
+        key: 'date' | 'campaign' | null;
+        direction: 'asc' | 'desc';
+    }>({ key: null, direction: 'asc' });
+
+    const handleSort = (key: 'date' | 'campaign') => {
+        setSortConfig(current => ({
+            key,
+            direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+        }));
+    };
+
+    const sortedLeads = useMemo(() => {
+        if (!sortConfig.key) return filteredLeads;
+
+        return [...filteredLeads].sort((a, b) => {
+            // For dates, we might need parsing if format is DD.MM.YYYY
+            // Assuming string comparison works for simplified checking or ISO dates
+            const aVal = sortConfig.key === 'date' ? a.date : (a.campaign || '');
+            const bVal = sortConfig.key === 'date' ? b.date : (b.campaign || '');
+
+            if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [filteredLeads, sortConfig]);
 
     const fetchLeads = useCallback(async () => {
         // ... implementation same ...
@@ -342,9 +371,23 @@ export default function LeadsPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[100px] sticky left-0 z-20 bg-card shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Дата</TableHead>
+                                    <TableHead
+                                        className="w-[100px] sticky left-0 z-20 bg-card shadow-[1px_0_0_0_rgba(0,0,0,0.1)] cursor-pointer hover:bg-muted/50"
+                                        onClick={() => handleSort('date')}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Дата <ArrowUpDown className="h-3 w-3" />
+                                        </div>
+                                    </TableHead>
                                     <TableHead className="w-[80px]">Время</TableHead>
-                                    <TableHead>Кампания</TableHead>
+                                    <TableHead
+                                        className="cursor-pointer hover:bg-muted/50"
+                                        onClick={() => handleSort('campaign')}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Кампания <ArrowUpDown className="h-3 w-3" />
+                                        </div>
+                                    </TableHead>
                                     <TableHead className="w-[140px]">Целевой</TableHead>
                                     <TableHead className="w-[180px]">Квалификация</TableHead>
                                     <TableHead className="w-[120px]">Сумма</TableHead>
@@ -363,7 +406,7 @@ export default function LeadsPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredLeads.map((lead) => (
+                                    sortedLeads.map((lead) => (
                                         <TableRow key={lead.rowIndex} className="table-row-hover">
                                             <TableCell className="font-medium sticky left-0 z-10 bg-card shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
                                                 {formatDate(lead.date)}
