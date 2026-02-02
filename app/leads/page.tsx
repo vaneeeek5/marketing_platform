@@ -337,7 +337,7 @@ export default function LeadsPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[100px]">Дата</TableHead>
+                                    <TableHead className="w-[100px] sticky left-0 z-20 bg-card shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">Дата</TableHead>
                                     <TableHead className="w-[80px]">Время</TableHead>
                                     <TableHead>Кампания</TableHead>
                                     <TableHead className="w-[140px]">Целевой</TableHead>
@@ -360,7 +360,7 @@ export default function LeadsPage() {
                                 ) : (
                                     filteredLeads.map((lead) => (
                                         <TableRow key={lead.rowIndex} className="table-row-hover">
-                                            <TableCell className="font-medium">
+                                            <TableCell className="font-medium sticky left-0 z-10 bg-card shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
                                                 {formatDate(lead.date)}
                                             </TableCell>
                                             <TableCell>{formatTime(lead.time)}</TableCell>
