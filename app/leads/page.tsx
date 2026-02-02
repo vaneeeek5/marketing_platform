@@ -371,7 +371,7 @@ export default function LeadsPage() {
                                             </TableCell>
                                             <TableCell>
                                                 <Select
-                                                    value={lead["Целевой"]}
+                                                    value={String(lead["Целевой"] ?? "")}
                                                     onValueChange={(v) => handleInlineUpdate(lead.rowIndex, 'target', v)}
                                                 >
                                                     <SelectTrigger className="h-8 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0">
