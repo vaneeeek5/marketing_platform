@@ -591,3 +591,62 @@ function MetrikaSyncSection() {
         </Card>
     );
 }
+
+function ArchiveSection() {
+    const [file, setFile] = useState<File | null>(null);
+    const [uploading, setUploading] = useState(false);
+    const [result, setResult] = useState("");
+
+    const handleUpload = async () => {
+        if (!file) return;
+        setUploading(true);
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const res = await fetch("/api/leads/merge-archive", {
+                method: "POST",
+                body: formData
+            });
+            const data = await res.json();
+            if (data.success) {
+                setResult(`Успешно обновлено: ${data.updated} строк`);
+            } else {
+                setResult(`Ошибка: ${data.error}`);
+            }
+        } catch (e) {
+            setResult("Ошибка загрузки");
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <FileSpreadsheet className="h-5 w-5 text-primary" />
+                    Импорт архива
+                </CardTitle>
+                <CardDescription>
+                    Загрузка Excel файла для обновления статусов старых лидов (сверка по Дата+Время)
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="grid w-full max-w-sm items-center gap-1.5">
+                    <Input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    />
+                </div>
+                <div className="flex items-center gap-4">
+                    <Button onClick={handleUpload} disabled={!file || uploading}>
+                        {uploading ? "Загрузка..." : "Загрузить и обновить"}
+                    </Button>
+                    {result && <span className="text-sm text-muted-foreground">{result}</span>}
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
