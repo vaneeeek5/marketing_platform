@@ -153,10 +153,17 @@ export async function GET(request: NextRequest) {
                 const startDateStr = searchParams.get("startDate");
                 const endDateStr = searchParams.get("endDate");
 
-                if (!startDateStr || !endDateStr) return true; // Fallback to showing everything if dates missing? Or today?
+                if (!startDateStr || !endDateStr) return false; // Return NOTHING if dates are invalid
 
-                const startDate = new Date(startDateStr);
-                const endDate = new Date(endDateStr);
+                // Parse YYYY-MM-DD directly to avoid timezone shifts
+                const parseYMD = (s: string) => {
+                    const [y, m, d] = s.split('-').map(Number);
+                    return new Date(y, m - 1, d); // Local time 00:00:00
+                };
+
+                const startDate = parseYMD(startDateStr);
+                const endDate = parseYMD(endDateStr);
+
                 // Set end of day for endDate
                 endDate.setHours(23, 59, 59, 999);
                 startDate.setHours(0, 0, 0, 0);

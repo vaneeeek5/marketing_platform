@@ -30,6 +30,7 @@ import { formatNumber, formatCurrency } from "@/lib/utils";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ru } from 'date-fns/locale';
+import { format } from 'date-fns';
 import { registerLocale } from "react-datepicker";
 registerLocale('ru', ru);
 
@@ -60,7 +61,10 @@ export default function DashboardPage() {
         try {
             let url = `/api/analytics/summary?sheet=${encodeURIComponent(currentSheet)}&period=${period}`;
             if (period === "custom" && startDate && endDate) {
-                url += `&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`;
+                // Pass local YYYY-MM-DD strings
+                const s = format(startDate, 'yyyy-MM-dd');
+                const e = format(endDate, 'yyyy-MM-dd');
+                url += `&startDate=${s}&endDate=${e}`;
             }
 
             const response = await fetch(url);
