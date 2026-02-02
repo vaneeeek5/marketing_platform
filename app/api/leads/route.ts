@@ -29,6 +29,36 @@ export async function GET(request: NextRequest) {
             };
         });
 
+        // Default Sort: Date Descending (Newest first)
+        leads.sort((a, b) => {
+            // Combine Date and Time for comparison
+            // Assuming format YYYY-MM-DD or DD.MM.YYYY. 
+            // If DD.MM.YYYY, simple string compare might fail for days/months crossing.
+            // Let's safe-parse if possible.
+            // Actually user dates usually "YYYY-MM-DD" from Metrika or manual string.
+            // If they are purely string "2025-12-01", localCompare works.
+            // But if "01.12.2025", we need custom parse. 
+            // Let's try to normalize for sorting.
+
+            const getDateVal = (l: Lead) => {
+                const d = l.date || "";
+                // If "DD.MM.YYYY" -> "YYYY-MM-DD" for string sort
+                if (d.match(/^\d{2}\.\d{2}\.\d{4}$/)) {
+                    const [day, month, year] = d.split('.');
+                    return `${year}-${month}-${day}T${l.time || "00:00:00"}`;
+                }
+                return `${d}T${l.time || "00:00:00"}`;
+            };
+
+            const dateA = getDateVal(a);
+            const dateB = getDateVal(b);
+
+            // Descending
+            if (dateA < dateB) return 1;
+            if (dateA > dateB) return -1;
+            return 0;
+        });
+
         return NextResponse.json({
             leads,
             total: leads.length,

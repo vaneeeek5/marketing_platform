@@ -465,7 +465,7 @@ export default function LeadsPage() {
                                             Кампания <ArrowUpDown className="h-3 w-3" />
                                         </div>
                                     </TableHead>
-                                    <TableHead className="w-[140px]">Целевой</TableHead>
+                                    <TableHead className="w-[160px]">Целевой</TableHead>
                                     <TableHead className="w-[180px]">Квалификация</TableHead>
                                     <TableHead className="w-[120px]">Сумма</TableHead>
                                     <TableHead>Комментарий</TableHead>
@@ -497,13 +497,39 @@ export default function LeadsPage() {
                                                     value={String(lead["Целевой"] ?? "")}
                                                     onValueChange={(v) => handleInlineUpdate(lead.rowIndex, 'target', v)}
                                                 >
-                                                    <SelectTrigger className="h-8 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0">
-                                                        <SelectValue placeholder="-" />
+                                                    <SelectTrigger className="h-auto py-1 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0 p-0 text-left">
+                                                        <SelectValue>
+                                                            {lead["Целевой"] ? (
+                                                                <span
+                                                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium whitespace-normal break-words leading-tight"
+                                                                    style={{
+                                                                        backgroundColor:
+                                                                            lead["Целевой"] === 'Целевой' ? '#dcfce7' :
+                                                                                lead["Целевой"] === 'СПАМ' ? '#fee2e2' :
+                                                                                    lead["Целевой"] === 'Дубль' ? '#fef3c7' :
+                                                                                        lead["Целевой"] === 'Недозвон' ? '#e0e7ff' :
+                                                                                            lead["Целевой"] === 'Не было в такое время лида' ? '#fecaca' :
+                                                                                                '#f3f4f6',
+                                                                        color:
+                                                                            lead["Целевой"] === 'Целевой' ? '#166534' :
+                                                                                lead["Целевой"] === 'СПАМ' ? '#991b1b' :
+                                                                                    lead["Целевой"] === 'Дубль' ? '#854d0e' :
+                                                                                        lead["Целевой"] === 'Недозвон' ? '#3730a3' :
+                                                                                            lead["Целевой"] === 'Не было в такое время лида' ? '#991b1b' :
+                                                                                                '#374151'
+                                                                    }}
+                                                                >
+                                                                    {lead["Целевой"]}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-muted-foreground">-</span>
+                                                            )}
+                                                        </SelectValue>
                                                     </SelectTrigger>
                                                     <SelectContent>
                                                         {TARGET_OPTIONS.map((opt) => (
                                                             <SelectItem key={opt.value} value={opt.value}>
-                                                                <StatusBadge status={opt.value} />
+                                                                {opt.label}
                                                             </SelectItem>
                                                         ))}
                                                     </SelectContent>
