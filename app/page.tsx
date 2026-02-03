@@ -86,10 +86,18 @@ export default function DashboardPage() {
         return { start, end };
     };
 
-    const fetchData = useCallback(async (selectedPeriod: string, customStart?: Date | null, customEnd?: Date | null) => {
+    // Chart granularity for trend display
+    const [chartGranularity, setChartGranularity] = useState<'day' | 'week' | 'month' | 'year'>('week');
+
+    const fetchData = useCallback(async (
+        selectedPeriod: string,
+        customStart?: Date | null,
+        customEnd?: Date | null,
+        granularity: string = 'week'
+    ) => {
         setLoading(true);
         try {
-            let url = `/api/analytics/summary?sheet=${encodeURIComponent(currentSheet)}`;
+            let url = `/api/analytics/summary?sheet=${encodeURIComponent(currentSheet)}&granularity=${granularity}`;
 
             let s: string | undefined;
             let e: string | undefined;
@@ -122,6 +130,36 @@ export default function DashboardPage() {
             const response = await fetch(url);
             if (!response.ok) throw new Error("Ошибка загрузки данных");
             const result = await response.json();
+
+            // Fetch expenses to merge with campaign stats
+            if (s && e) {
+                try {
+                    const expensesRes = await fetch(`/api/expenses?startDate=${s}&endDate=${e}`);
+                    if (expensesRes.ok) {
+                        const expensesData = await expensesRes.json();
+                        if (expensesData.expenses && result.campaignStats) {
+                            // Create a map of expenses by campaign name (lowercase for matching)
+                            const expenseMap = new Map<string, { spend: number; visits: number }>();
+                            expensesData.expenses.forEach((exp: { campaign: string; spend: number; visits: number }) => {
+                                expenseMap.set(exp.campaign.toLowerCase().trim(), { spend: exp.spend, visits: exp.visits });
+                            });
+
+                            // Merge with campaign stats
+                            result.campaignStats = result.campaignStats.map((cs: any) => {
+                                const expData = expenseMap.get(cs.name.toLowerCase().trim());
+                                if (expData) {
+                                    cs.spend = expData.spend;
+                                    cs.cpl = cs.totalLeads > 0 ? expData.spend / cs.totalLeads : 0;
+                                }
+                                return cs;
+                            });
+                        }
+                    }
+                } catch (expErr) {
+                    console.warn("Failed to fetch expenses for campaign stats:", expErr);
+                }
+            }
+
             setData(result);
             setError(null);
         } catch (err) {
@@ -135,8 +173,8 @@ export default function DashboardPage() {
 
     // Initial load
     useEffect(() => {
-        fetchData("quarter");
-    }, [fetchData]);
+        fetchData("quarter", null, null, chartGranularity);
+    }, [fetchData, chartGranularity]);
 
     const handleApplyPeriod = () => {
         if (tempPeriod === 'custom') {
@@ -146,7 +184,7 @@ export default function DashboardPage() {
             setPeriod(tempPeriod);
             // Clear custom dates if switching to preset
             setDateRange([null, null]);
-            fetchData(tempPeriod);
+            fetchData(tempPeriod, null, null, chartGranularity);
             setShowPeriodPopup(false);
             setShowCustomRange(false);
         }
@@ -155,7 +193,7 @@ export default function DashboardPage() {
     const handleApplyCustomRange = () => {
         if (startDate && endDate) {
             setPeriod('custom');
-            fetchData('custom', startDate, endDate);
+            fetchData('custom', startDate, endDate, chartGranularity);
             setShowCustomRange(false);
         }
     };
@@ -388,11 +426,30 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 {/* Trend Chart */}
                 <Card className="xl:col-span-2">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="flex items-center gap-2 text-base">
                             <TrendingUp className="h-5 w-5 text-primary" />
-                            Динамика лидов по неделям
+                            Динамика лидов
                         </CardTitle>
+                        <div className="flex gap-1 bg-muted p-1 rounded-lg">
+                            {[
+                                { value: 'day', label: 'Дни' },
+                                { value: 'week', label: 'Недели' },
+                                { value: 'month', label: 'Месяцы' },
+                                { value: 'year', label: 'Годы' }
+                            ].map(opt => (
+                                <button
+                                    key={opt.value}
+                                    onClick={() => setChartGranularity(opt.value as any)}
+                                    className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${chartGranularity === opt.value
+                                        ? 'bg-background text-foreground shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground'
+                                        }`}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
                     </CardHeader>
                     <CardContent>
                         {trends.length > 0 ? (
@@ -433,6 +490,9 @@ export default function DashboardPage() {
                                         <th className="text-right py-3 px-4 font-medium">Квал</th>
                                         <th className="text-right py-3 px-4 font-medium">Продажи</th>
                                         <th className="text-right py-3 px-4 font-medium">Конверсия</th>
+                                        {data.campaignStats.some((c) => c.spend) && (
+                                            <th className="text-right py-3 px-4 font-medium">Расходы</th>
+                                        )}
                                         {data.campaignStats.some((c) => c.cpl) && (
                                             <th className="text-right py-3 px-4 font-medium">CPL</th>
                                         )}
@@ -468,6 +528,13 @@ export default function DashboardPage() {
                                             <td className="text-right py-3 px-4">
                                                 {campaign.conversionRate.toFixed(1)}%
                                             </td>
+                                            {data.campaignStats.some((c) => c.spend) && (
+                                                <td className="text-right py-3 px-4">
+                                                    {campaign.spend
+                                                        ? formatCurrency(campaign.spend)
+                                                        : "—"}
+                                                </td>
+                                            )}
                                             {data.campaignStats.some((c) => c.cpl) && (
                                                 <td className="text-right py-3 px-4">
                                                     {campaign.cpl

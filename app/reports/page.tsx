@@ -90,6 +90,36 @@ export default function ReportsPage() {
             const response = await fetch(url);
             if (!response.ok) throw new Error("Ошибка загрузки данных");
             const result = await response.json();
+
+            // Fetch expenses to merge with campaign stats
+            if (s && e) {
+                try {
+                    const expensesRes = await fetch(`/api/expenses?startDate=${s}&endDate=${e}`);
+                    if (expensesRes.ok) {
+                        const expensesData = await expensesRes.json();
+                        if (expensesData.expenses && result.campaignStats) {
+                            // Create a map of expenses by campaign name (lowercase for matching)
+                            const expenseMap = new Map<string, { spend: number; visits: number }>();
+                            expensesData.expenses.forEach((exp: { campaign: string; spend: number; visits: number }) => {
+                                expenseMap.set(exp.campaign.toLowerCase().trim(), { spend: exp.spend, visits: exp.visits });
+                            });
+
+                            // Merge with campaign stats
+                            result.campaignStats = result.campaignStats.map((cs: any) => {
+                                const expData = expenseMap.get(cs.name.toLowerCase().trim());
+                                if (expData) {
+                                    cs.spend = expData.spend;
+                                    cs.cpl = cs.totalLeads > 0 ? expData.spend / cs.totalLeads : 0;
+                                }
+                                return cs;
+                            });
+                        }
+                    }
+                } catch (expErr) {
+                    console.warn("Failed to fetch expenses for reports:", expErr);
+                }
+            }
+
             setData(result);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Неизвестная ошибка");
@@ -434,6 +464,8 @@ export default function ReportsPage() {
                                                 <>
                                                     <TableHead className="text-right">Расходы</TableHead>
                                                     <TableHead className="text-right">CPL</TableHead>
+                                                    <TableHead className="text-right">CPT</TableHead>
+                                                    <TableHead className="text-right">CPQ</TableHead>
                                                 </>
                                             )}
                                         </TableRow>
@@ -507,6 +539,32 @@ export default function ReportsPage() {
                                                                 "—"
                                                             )}
                                                         </TableCell>
+                                                        <TableCell className="text-right">
+                                                            {campaign.spend && campaign.targetLeads > 0 ? (
+                                                                <span className={
+                                                                    (campaign.spend / campaign.targetLeads) > 10000
+                                                                        ? "text-red-600 font-medium"
+                                                                        : "text-green-600 font-medium"
+                                                                }>
+                                                                    {formatCurrency(campaign.spend / campaign.targetLeads)}
+                                                                </span>
+                                                            ) : (
+                                                                "—"
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell className="text-right">
+                                                            {campaign.spend && campaign.qualifiedLeads > 0 ? (
+                                                                <span className={
+                                                                    (campaign.spend / campaign.qualifiedLeads) > 20000
+                                                                        ? "text-red-600 font-medium"
+                                                                        : "text-green-600 font-medium"
+                                                                }>
+                                                                    {formatCurrency(campaign.spend / campaign.qualifiedLeads)}
+                                                                </span>
+                                                            ) : (
+                                                                "—"
+                                                            )}
+                                                        </TableCell>
                                                     </>
                                                 )}
                                             </TableRow>
@@ -553,6 +611,16 @@ export default function ReportsPage() {
                                                     <TableCell className="text-right">
                                                         {totals.totalLeads > 0
                                                             ? formatCurrency(totals.spend / totals.totalLeads)
+                                                            : "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        {totals.targetLeads > 0
+                                                            ? formatCurrency(totals.spend / totals.targetLeads)
+                                                            : "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        {totals.qualifiedLeads > 0
+                                                            ? formatCurrency(totals.spend / totals.qualifiedLeads)
                                                             : "—"}
                                                     </TableCell>
                                                 </>
@@ -668,6 +736,176 @@ export default function ReportsPage() {
                                     </CardContent>
                                 </Card>
                             </div>
+
+                            {/* Cost-based rankings */}
+                            {totals.spend > 0 && (
+                                <>
+                                    <h4 className="text-sm font-semibold text-muted-foreground mt-6 mb-3">Стоимость лидов</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {/* Cheapest CPL */}
+                                        <Card className="border-green-200 bg-green-50/30">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base font-semibold text-green-700">
+                                                    🏆 Самые дешёвые лиды
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    {[...campaignStats]
+                                                        .filter(c => c.cpl && c.cpl > 0)
+                                                        .sort((a, b) => (a.cpl || 0) - (b.cpl || 0))
+                                                        .slice(0, 5)
+                                                        .map((campaign, index) => (
+                                                            <div key={campaign.name} className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                                    <span className="text-xs font-bold text-green-700 w-4">{index + 1}</span>
+                                                                    <span className="text-sm truncate" title={campaign.name}>{campaign.name}</span>
+                                                                </div>
+                                                                <span className="text-sm font-bold text-green-700">{formatCurrency(campaign.cpl || 0)}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Cheapest CPT */}
+                                        <Card className="border-green-200 bg-green-50/30">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base font-semibold text-green-700">
+                                                    🎯 Самые дешёвые целевые
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    {[...campaignStats]
+                                                        .filter(c => c.spend && c.targetLeads > 0)
+                                                        .map(c => ({ ...c, cpt: (c.spend || 0) / c.targetLeads }))
+                                                        .sort((a, b) => a.cpt - b.cpt)
+                                                        .slice(0, 5)
+                                                        .map((campaign, index) => (
+                                                            <div key={campaign.name} className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                                    <span className="text-xs font-bold text-green-700 w-4">{index + 1}</span>
+                                                                    <span className="text-sm truncate" title={campaign.name}>{campaign.name}</span>
+                                                                </div>
+                                                                <span className="text-sm font-bold text-green-700">{formatCurrency(campaign.cpt)}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Cheapest CPQ */}
+                                        <Card className="border-green-200 bg-green-50/30">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base font-semibold text-green-700">
+                                                    ✅ Самые дешёвые квалы
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    {[...campaignStats]
+                                                        .filter(c => c.spend && c.qualifiedLeads > 0)
+                                                        .map(c => ({ ...c, cpq: (c.spend || 0) / c.qualifiedLeads }))
+                                                        .sort((a, b) => a.cpq - b.cpq)
+                                                        .slice(0, 5)
+                                                        .map((campaign, index) => (
+                                                            <div key={campaign.name} className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                                    <span className="text-xs font-bold text-green-700 w-4">{index + 1}</span>
+                                                                    <span className="text-sm truncate" title={campaign.name}>{campaign.name}</span>
+                                                                </div>
+                                                                <span className="text-sm font-bold text-green-700">{formatCurrency(campaign.cpq)}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                                        {/* Most Expensive CPL */}
+                                        <Card className="border-red-200 bg-red-50/30">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base font-semibold text-red-700">
+                                                    💸 Самые дорогие лиды
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    {[...campaignStats]
+                                                        .filter(c => c.cpl && c.cpl > 0)
+                                                        .sort((a, b) => (b.cpl || 0) - (a.cpl || 0))
+                                                        .slice(0, 5)
+                                                        .map((campaign, index) => (
+                                                            <div key={campaign.name} className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                                    <span className="text-xs font-bold text-red-700 w-4">{index + 1}</span>
+                                                                    <span className="text-sm truncate" title={campaign.name}>{campaign.name}</span>
+                                                                </div>
+                                                                <span className="text-sm font-bold text-red-700">{formatCurrency(campaign.cpl || 0)}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Most Expensive CPT */}
+                                        <Card className="border-red-200 bg-red-50/30">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base font-semibold text-red-700">
+                                                    🎯 Самые дорогие целевые
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    {[...campaignStats]
+                                                        .filter(c => c.spend && c.targetLeads > 0)
+                                                        .map(c => ({ ...c, cpt: (c.spend || 0) / c.targetLeads }))
+                                                        .sort((a, b) => b.cpt - a.cpt)
+                                                        .slice(0, 5)
+                                                        .map((campaign, index) => (
+                                                            <div key={campaign.name} className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                                    <span className="text-xs font-bold text-red-700 w-4">{index + 1}</span>
+                                                                    <span className="text-sm truncate" title={campaign.name}>{campaign.name}</span>
+                                                                </div>
+                                                                <span className="text-sm font-bold text-red-700">{formatCurrency(campaign.cpt)}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Most Expensive CPQ */}
+                                        <Card className="border-red-200 bg-red-50/30">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-base font-semibold text-red-700">
+                                                    ❌ Самые дорогие квалы
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    {[...campaignStats]
+                                                        .filter(c => c.spend && c.qualifiedLeads > 0)
+                                                        .map(c => ({ ...c, cpq: (c.spend || 0) / c.qualifiedLeads }))
+                                                        .sort((a, b) => b.cpq - a.cpq)
+                                                        .slice(0, 5)
+                                                        .map((campaign, index) => (
+                                                            <div key={campaign.name} className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                                    <span className="text-xs font-bold text-red-700 w-4">{index + 1}</span>
+                                                                    <span className="text-sm truncate" title={campaign.name}>{campaign.name}</span>
+                                                                </div>
+                                                                <span className="text-sm font-bold text-red-700">{formatCurrency(campaign.cpq)}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                </>
+                            )}
                         </TabsContent>
                     </Tabs>
                 </CardContent>

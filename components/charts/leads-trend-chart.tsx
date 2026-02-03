@@ -26,7 +26,7 @@ export function LeadsTrendChart({ data }: LeadsTrendChartProps) {
                 >
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis
-                        dataKey="week"
+                        dataKey="period"
                         className="text-xs fill-muted-foreground"
                         tick={{ fill: "hsl(var(--muted-foreground))" }}
                     />

@@ -61,6 +61,8 @@ export default function ExpensesPage() {
         return { start, end };
     };
 
+    const [hasDirectAccess, setHasDirectAccess] = useState(true);
+
     const fetchData = useCallback(async (selectedPeriod: string, customStart?: Date | null, customEnd?: Date | null) => {
         setLoading(true);
         try {
@@ -91,6 +93,7 @@ export default function ExpensesPage() {
             const result = await response.json();
             setExpenses(result.expenses || []);
             setTotalSpend(result.total?.spend || 0);
+            setHasDirectAccess(result.hasDirectAccess !== false); // Default to true if missing
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Неизвестная ошибка");
@@ -259,6 +262,20 @@ export default function ExpensesPage() {
                     )}
                 </div>
             </div>
+
+            {/* Direct Login Warning */}
+            {!loading && !hasDirectAccess && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3 text-amber-800">
+                    <Wallet className="h-5 w-5 shrink-0" />
+                    <div>
+                        <p className="text-sm font-medium">Логин Яндекс.Директ не указан</p>
+                        <p className="text-sm mt-1 opacity-90">
+                            Чтобы видеть расходы по кампаниям, укажите логин в <a href="/settings" className="underline font-semibold hover:text-amber-900">Настройках</a>.
+                            Сейчас отображаются только визиты.
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* Total Card */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

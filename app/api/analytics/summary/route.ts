@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const sheetName = searchParams.get("sheet") || CURRENT_MONTH_SHEET;
         const period = searchParams.get("period") || "month";
+        const granularity = searchParams.get("granularity") || "week"; // day, week, month, year
 
         // Get all sheets needed for the period
         const sheetsToFetch = await getSheetsForPeriod(sheetName, period);
@@ -199,10 +200,10 @@ export async function GET(request: NextRequest) {
             }
         > = {};
 
-        // Данные для трендов по неделям
-        const weeklyData: Record<
+        // Данные для трендов (группировка по granularity)
+        const trendData: Record<
             string,
-            { leads: number; targetLeads: number; sales: number }
+            { leads: number; targetLeads: number; sales: number; sortKey: number }
         > = {};
 
         // Calculate Metrika Stats
@@ -267,20 +268,46 @@ export async function GET(request: NextRequest) {
                 campaignStatsMap[campaign].sales++;
             }
 
-            // Агрегация по неделям
+            // Агрегация по выбранной гранулярности
             const date = parseDate(dateStr);
             if (date) {
-                const weekNum = getWeekNumber(date);
-                const weekKey = `Неделя ${weekNum}`;
-                if (!weeklyData[weekKey]) {
-                    weeklyData[weekKey] = { leads: 0, targetLeads: 0, sales: 0 };
+                let periodKey: string;
+                let sortKey: number;
+
+                switch (granularity) {
+                    case 'day':
+                        // Format: "01.02"
+                        const day = date.getDate().toString().padStart(2, '0');
+                        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                        periodKey = `${day}.${month}`;
+                        sortKey = date.getTime();
+                        break;
+                    case 'month':
+                        const months = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+                        periodKey = `${months[date.getMonth()]} ${date.getFullYear()}`;
+                        sortKey = date.getFullYear() * 12 + date.getMonth();
+                        break;
+                    case 'year':
+                        periodKey = `${date.getFullYear()}`;
+                        sortKey = date.getFullYear();
+                        break;
+                    case 'week':
+                    default:
+                        const weekNum = getWeekNumber(date);
+                        periodKey = `Нед ${weekNum}`;
+                        sortKey = weekNum;
+                        break;
                 }
-                weeklyData[weekKey].leads++;
+
+                if (!trendData[periodKey]) {
+                    trendData[periodKey] = { leads: 0, targetLeads: 0, sales: 0, sortKey };
+                }
+                trendData[periodKey].leads++;
                 if (isTarget) {
-                    weeklyData[weekKey].targetLeads++;
+                    trendData[periodKey].targetLeads++;
                 }
                 if (isSales) {
-                    weeklyData[weekKey].sales++;
+                    trendData[periodKey].sales++;
                 }
             }
         });
@@ -321,15 +348,13 @@ export async function GET(request: NextRequest) {
         };
 
         // Формирование данных трендов
-        const trends: TrendData[] = Object.entries(weeklyData)
-            .sort((a, b) => {
-                const numA = parseInt(a[0].replace("Неделя ", ""));
-                const numB = parseInt(b[0].replace("Неделя ", ""));
-                return numA - numB;
-            })
-            .map(([week, data]) => ({
-                week,
-                ...data,
+        const trends: TrendData[] = Object.entries(trendData)
+            .sort((a, b) => a[1].sortKey - b[1].sortKey)
+            .map(([period, data]) => ({
+                period,
+                leads: data.leads,
+                targetLeads: data.targetLeads,
+                sales: data.sales,
             }));
 
         // Формирование статистики по кампаниям

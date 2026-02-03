@@ -151,6 +151,53 @@ export async function updateRow(
 }
 
 /**
+ * Удалить строку из листа
+ */
+export async function deleteRow(
+    sheetName: string,
+    rowIndex: number
+): Promise<void> {
+    const sheets = getGoogleSheetsClient();
+
+    try {
+        // Get sheet ID first
+        const sheetInfo = await sheets.spreadsheets.get({
+            spreadsheetId: SPREADSHEET_ID,
+        });
+
+        const sheet = sheetInfo.data.sheets?.find(
+            s => s.properties?.title === sheetName
+        );
+
+        if (!sheet?.properties?.sheetId) {
+            throw new Error(`Sheet "${sheetName}" not found`);
+        }
+
+        await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SPREADSHEET_ID,
+            requestBody: {
+                requests: [{
+                    deleteDimension: {
+                        range: {
+                            sheetId: sheet.properties.sheetId,
+                            dimension: "ROWS",
+                            startIndex: rowIndex - 1, // 0-indexed
+                            endIndex: rowIndex // exclusive
+                        }
+                    }
+                }]
+            }
+        });
+
+        // Invalidate cache
+        delete cache[sheetName];
+    } catch (error) {
+        console.error("Ошибка при удалении строки из Google Sheets:", error);
+        throw error;
+    }
+}
+
+/**
  * Обновить несколько строк одним запросом (Batch Update)
  */
 export async function updateRowsBatch(
@@ -339,15 +386,6 @@ export async function getBudgetData(): Promise<Record<string, number> | null> {
  * METRIKA INTEGRATION FUNCTIONS
  */
 
-export interface MetrikaSettings {
-    auto_sync_enabled: boolean;
-    sync_time: string;
-    last_sync_date: string;
-    last_sync_result: string;
-    initial_sync_completed: boolean;
-    goals: Record<string, boolean>; // goalId -> enabled
-}
-
 /**
  * Проверить какие visitId уже существуют в таблице (для дедупликации)
  * Column E is index 4
@@ -393,6 +431,7 @@ export interface MetrikaSettings {
     allowed_utm_sources: string[];
     campaign_rules: Record<string, CampaignRule>;
     direct_client_logins?: string[];
+    expenses_mapping?: Record<string, { directName: string; displayName: string }>;
 }
 
 /**
@@ -409,7 +448,8 @@ export async function getMetrikaSettings(): Promise<MetrikaSettings> {
         goals: {},
         allowed_utm_sources: [],
         campaign_rules: {},
-        direct_client_logins: []
+        direct_client_logins: [],
+        expenses_mapping: {}
     };
 
     data.forEach(row => {
@@ -448,6 +488,18 @@ export async function getMetrikaSettings(): Promise<MetrikaSettings> {
             const campId = key.replace("map_campaign_", "");
             if (!settings.campaign_rules[campId]) {
                 settings.campaign_rules[campId] = { name: value };
+            }
+        }
+        // Expenses mapping format: expense_mapping_utmname -> JSON({directName, displayName})
+        else if (key.startsWith("expense_mapping_")) {
+            const utmName = key.replace("expense_mapping_", "");
+            if (!settings.expenses_mapping) settings.expenses_mapping = {};
+            try {
+                const parsed = JSON.parse(value);
+                settings.expenses_mapping[utmName] = parsed;
+            } catch {
+                // Legacy format: value is just directName string
+                settings.expenses_mapping[utmName] = { directName: value, displayName: value };
             }
         }
     });
@@ -499,6 +551,12 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
         });
     }
 
+    if (settings.expenses_mapping) {
+        Object.entries(settings.expenses_mapping).forEach(([utmName, mapping]) => {
+            updates[`expense_mapping_${utmName}`] = JSON.stringify(mapping);
+        });
+    }
+
     // Process updates
     for (const [key, value] of Object.entries(updates)) {
         if (keyRowMap.has(key)) {
@@ -508,6 +566,27 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
             // Append new row
             await appendRows("MetrikaSettings", [{ setting_key: key, setting_value: value }]);
         }
+    }
+
+    // Delete expense_mapping entries that no longer exist
+    // We need to find all existing expense_mapping_* keys and delete those not in settings
+    const existingExpenseKeys = Array.from(keyRowMap.keys()).filter(k => k.startsWith("expense_mapping_"));
+    const newExpenseKeys = new Set(
+        Object.keys(settings.expenses_mapping || {}).map(k => `expense_mapping_${k}`)
+    );
+
+    // Find rows to delete (in reverse order to avoid index shifting)
+    const rowsToDelete: number[] = [];
+    for (const existingKey of existingExpenseKeys) {
+        if (!newExpenseKeys.has(existingKey)) {
+            rowsToDelete.push(keyRowMap.get(existingKey)!);
+        }
+    }
+
+    // Delete rows in reverse order (highest row first)
+    rowsToDelete.sort((a, b) => b - a);
+    for (const rowNum of rowsToDelete) {
+        await deleteRow("MetrikaSettings", rowNum);
     }
 }
 

@@ -38,7 +38,7 @@ export interface KPIMetrics {
 
 // Данные для графика трендов
 export interface TrendData {
-    week: string;
+    period: string; // Generic period label (day, week, month, year)
     leads: number;
     targetLeads: number;
     sales: number;

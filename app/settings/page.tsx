@@ -210,6 +210,8 @@ function MetrikaSyncSection() {
 
     const [saved, setSaved] = useState(false);
     const [cleaning, setCleaning] = useState(false);
+    const [showCampaignRules, setShowCampaignRules] = useState(false);
+    const [showExpensesMapping, setShowExpensesMapping] = useState(false);
 
     const loadData = async () => {
         setLoading(true);
@@ -437,128 +439,261 @@ function MetrikaSyncSection() {
                         </p>
                     </div>
 
-                    {/* Campaign Mapping & Rules */}
-                    <div className="space-y-4">
-                        <label className="text-sm font-medium">Правила для кампаний (Маппинг, Целевой, Сумма)</label>
-                        <div className="border rounded-md p-4 space-y-4 bg-muted/10">
-                            {Object.entries(settings.campaign_rules || {}).map(([id, rule]) => (
-                                <div key={id} className="flex flex-col gap-2 p-3 bg-background rounded border shadow-sm">
-                                    <div className="flex justify-between items-center">
-                                        <div className="bg-muted px-2 py-1 rounded text-xs font-mono" title={id}>{id}</div>
+                    {/* Campaign Mapping & Rules (Collapsible) */}
+                    <div className="space-y-2">
+                        <div
+                            className="flex items-center justify-between cursor-pointer hover:bg-muted/50 p-2 rounded-md -mx-2"
+                            onClick={() => setShowCampaignRules(!showCampaignRules)}
+                        >
+                            <label className="text-sm font-medium cursor-pointer">
+                                Правила для кампаний ({Object.keys(settings.campaign_rules || {}).length})
+                            </label>
+                            <span className="text-xs text-muted-foreground">
+                                {showCampaignRules ? "▲ Свернуть" : "▼ Развернуть"}
+                            </span>
+                        </div>
+
+                        {showCampaignRules && (
+                            <div className="border rounded-md p-4 space-y-4 bg-muted/10 animate-in slide-in-from-top-2">
+                                {Object.entries(settings.campaign_rules || {}).map(([id, rule]) => (
+                                    <div key={id} className="flex flex-col gap-2 p-3 bg-background rounded border shadow-sm">
+                                        <div className="flex justify-between items-center">
+                                            <div className="bg-muted px-2 py-1 rounded text-xs font-mono" title={id}>{id}</div>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 text-destructive"
+                                                onClick={() => {
+                                                    const newRules = { ...settings.campaign_rules };
+                                                    delete newRules[id];
+                                                    setSettings({ ...settings, campaign_rules: newRules });
+                                                }}
+                                            >
+                                                <div className="h-4 w-4">×</div>
+                                            </Button>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] uppercase text-muted-foreground font-bold">Название</label>
+                                                <Input
+                                                    value={(rule as any).name}
+                                                    onChange={(e) => {
+                                                        const newRules = {
+                                                            ...settings.campaign_rules,
+                                                            [id]: { ...(rule as any), name: e.target.value }
+                                                        };
+                                                        setSettings({ ...settings, campaign_rules: newRules });
+                                                    }}
+                                                    className="h-8 text-sm"
+                                                    placeholder="Название кампании"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] uppercase text-muted-foreground font-bold">Сумма продажи</label>
+                                                <Input
+                                                    type="number"
+                                                    value={(rule as any).amount || ''}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                                                        const newRules = {
+                                                            ...settings.campaign_rules,
+                                                            [id]: { ...(rule as any), amount: val }
+                                                        };
+                                                        setSettings({ ...settings, campaign_rules: newRules });
+                                                    }}
+                                                    className="h-8 text-sm"
+                                                    placeholder="0.00"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] uppercase text-muted-foreground font-bold">Статус "Целевой"</label>
+                                                <Input
+                                                    value={(rule as any).target_status || ''}
+                                                    onChange={(e) => {
+                                                        const newRules = {
+                                                            ...settings.campaign_rules,
+                                                            [id]: { ...(rule as any), target_status: e.target.value }
+                                                        };
+                                                        setSettings({ ...settings, campaign_rules: newRules });
+                                                    }}
+                                                    className="h-8 text-sm"
+                                                    placeholder="Например: Целевой / Нецелевой"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] uppercase text-muted-foreground font-bold">Статус "Квалификация"</label>
+                                                <Input
+                                                    value={(rule as any).qualification_status || ''}
+                                                    onChange={(e) => {
+                                                        const newRules = {
+                                                            ...settings.campaign_rules,
+                                                            [id]: { ...(rule as any), qualification_status: e.target.value }
+                                                        };
+                                                        setSettings({ ...settings, campaign_rules: newRules });
+                                                    }}
+                                                    className="h-8 text-sm"
+                                                    placeholder="Например: Квал / Брак"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                <div className="bg-muted p-3 rounded space-y-3">
+                                    <label className="text-xs font-semibold">Добавить новое правило</label>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            placeholder="ID кампании (напр. 90018159)"
+                                            className="h-8 text-xs font-mono"
+                                            id="new-camp-id"
+                                        />
                                         <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6 text-destructive"
+                                            size="sm"
+                                            variant="secondary"
                                             onClick={() => {
-                                                const newRules = { ...settings.campaign_rules };
-                                                delete newRules[id];
-                                                setSettings({ ...settings, campaign_rules: newRules });
+                                                const idInput = document.getElementById('new-camp-id') as HTMLInputElement;
+                                                if (idInput.value) {
+                                                    setSettings({
+                                                        ...settings,
+                                                        campaign_rules: {
+                                                            ...(settings.campaign_rules || {}),
+                                                            [idInput.value]: { name: `Campaign ${idInput.value}` }
+                                                        }
+                                                    });
+                                                    idInput.value = '';
+                                                }
                                             }}
                                         >
-                                            <div className="h-4 w-4">×</div>
+                                            Добавить
                                         </Button>
                                     </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] uppercase text-muted-foreground font-bold">Название</label>
-                                            <Input
-                                                value={(rule as any).name}
-                                                onChange={(e) => {
-                                                    const newRules = {
-                                                        ...settings.campaign_rules,
-                                                        [id]: { ...(rule as any), name: e.target.value }
-                                                    };
-                                                    setSettings({ ...settings, campaign_rules: newRules });
-                                                }}
-                                                className="h-8 text-sm"
-                                                placeholder="Название кампании"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] uppercase text-muted-foreground font-bold">Сумма продажи</label>
-                                            <Input
-                                                type="number"
-                                                value={(rule as any).amount || ''}
-                                                onChange={(e) => {
-                                                    const val = e.target.value ? parseFloat(e.target.value) : undefined;
-                                                    const newRules = {
-                                                        ...settings.campaign_rules,
-                                                        [id]: { ...(rule as any), amount: val }
-                                                    };
-                                                    setSettings({ ...settings, campaign_rules: newRules });
-                                                }}
-                                                className="h-8 text-sm"
-                                                placeholder="0.00"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] uppercase text-muted-foreground font-bold">Статус "Целевой"</label>
-                                            <Input
-                                                value={(rule as any).target_status || ''}
-                                                onChange={(e) => {
-                                                    const newRules = {
-                                                        ...settings.campaign_rules,
-                                                        [id]: { ...(rule as any), target_status: e.target.value }
-                                                    };
-                                                    setSettings({ ...settings, campaign_rules: newRules });
-                                                }}
-                                                className="h-8 text-sm"
-                                                placeholder="Например: Целевой / Нецелевой"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] uppercase text-muted-foreground font-bold">Статус "Квалификация"</label>
-                                            <Input
-                                                value={(rule as any).qualification_status || ''}
-                                                onChange={(e) => {
-                                                    const newRules = {
-                                                        ...settings.campaign_rules,
-                                                        [id]: { ...(rule as any), qualification_status: e.target.value }
-                                                    };
-                                                    setSettings({ ...settings, campaign_rules: newRules });
-                                                }}
-                                                className="h-8 text-sm"
-                                                placeholder="Например: Квал / Брак"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-
-                            <div className="bg-muted p-3 rounded space-y-3">
-                                <label className="text-xs font-semibold">Добавить новое правило</label>
-                                <div className="flex gap-2">
-                                    <Input
-                                        placeholder="ID кампании (напр. 90018159)"
-                                        className="h-8 text-xs font-mono"
-                                        id="new-camp-id"
-                                    />
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={() => {
-                                            const idInput = document.getElementById('new-camp-id') as HTMLInputElement;
-                                            if (idInput.value) {
-                                                setSettings({
-                                                    ...settings,
-                                                    campaign_rules: {
-                                                        ...(settings.campaign_rules || {}),
-                                                        [idInput.value]: { name: `Campaign ${idInput.value}` }
-                                                    }
-                                                });
-                                                idInput.value = '';
-                                            }
-                                        }}
-                                    >
-                                        Добавить
-                                    </Button>
                                 </div>
                             </div>
+                        )}
+                    </div>
+
+                    {/* Expenses Mapping (UTM -> Direct Name) - Collapsible */}
+                    <div className="space-y-2">
+                        <div
+                            className="flex items-center justify-between cursor-pointer hover:bg-muted/50 p-2 rounded-md -mx-2"
+                            onClick={() => setShowExpensesMapping(!showExpensesMapping)}
+                        >
+                            <label className="text-sm font-medium cursor-pointer">
+                                Маппинг расходов ({Object.keys(settings.expenses_mapping || {}).length})
+                            </label>
+                            <span className="text-xs text-muted-foreground">
+                                {showExpensesMapping ? "▲ Свернуть" : "▼ Развернуть"}
+                            </span>
                         </div>
+
+                        {showExpensesMapping && (
+                            <div className="border rounded-md p-4 space-y-4 bg-muted/10 animate-in slide-in-from-top-2">
+                                <p className="text-xs text-muted-foreground">
+                                    Связывает UTM-кампании с кампаниями Яндекс.Директа и задаёт отображаемое название.
+                                </p>
+
+                                {Object.entries(settings.expenses_mapping || {}).map(([utmName, mapping]) => {
+                                    const directName = typeof mapping === 'string' ? mapping : mapping?.directName || '';
+                                    const displayName = typeof mapping === 'string' ? mapping : mapping?.displayName || '';
+                                    return (
+                                        <div key={utmName} className="flex items-center gap-2 p-2 bg-background rounded border">
+                                            <div className="w-32 bg-muted px-2 py-1 rounded text-xs font-mono truncate" title={utmName}>
+                                                {utmName}
+                                            </div>
+                                            <span className="text-muted-foreground">→</span>
+                                            <Input
+                                                value={directName}
+                                                onChange={(e) => {
+                                                    const newMapping = {
+                                                        ...settings.expenses_mapping,
+                                                        [utmName]: { directName: e.target.value, displayName: displayName || e.target.value }
+                                                    };
+                                                    setSettings({ ...settings, expenses_mapping: newMapping });
+                                                }}
+                                                className="w-40 h-8 text-xs"
+                                                placeholder="Название в Директе"
+                                            />
+                                            <span className="text-muted-foreground">→</span>
+                                            <Input
+                                                value={displayName}
+                                                onChange={(e) => {
+                                                    const newMapping = {
+                                                        ...settings.expenses_mapping,
+                                                        [utmName]: { directName: directName, displayName: e.target.value }
+                                                    };
+                                                    setSettings({ ...settings, expenses_mapping: newMapping });
+                                                }}
+                                                className="flex-1 h-8 text-xs"
+                                                placeholder="Отображаемое название"
+                                            />
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-destructive"
+                                                onClick={() => {
+                                                    const newMapping = { ...settings.expenses_mapping };
+                                                    delete newMapping[utmName];
+                                                    setSettings({ ...settings, expenses_mapping: newMapping });
+                                                }}
+                                            >
+                                                ×
+                                            </Button>
+                                        </div>
+                                    );
+                                })}
+
+                                <div className="bg-muted p-3 rounded space-y-3">
+                                    <label className="text-xs font-semibold">Добавить маппинг</label>
+                                    <div className="flex gap-2 flex-wrap">
+                                        <Input
+                                            placeholder="UTM (напр. rsya)"
+                                            className="h-8 text-xs font-mono w-32"
+                                            id="new-expense-utm"
+                                        />
+                                        <Input
+                                            placeholder="Название в Директе"
+                                            className="h-8 text-xs w-40"
+                                            id="new-expense-direct"
+                                        />
+                                        <Input
+                                            placeholder="Отображаемое название"
+                                            className="h-8 text-xs flex-1 min-w-[150px]"
+                                            id="new-expense-display"
+                                        />
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                                const utmInput = document.getElementById('new-expense-utm') as HTMLInputElement;
+                                                const directInput = document.getElementById('new-expense-direct') as HTMLInputElement;
+                                                const displayInput = document.getElementById('new-expense-display') as HTMLInputElement;
+                                                if (utmInput.value && directInput.value) {
+                                                    setSettings({
+                                                        ...settings,
+                                                        expenses_mapping: {
+                                                            ...(settings.expenses_mapping || {}),
+                                                            [utmInput.value]: {
+                                                                directName: directInput.value,
+                                                                displayName: displayInput.value || directInput.value
+                                                            }
+                                                        }
+                                                    });
+                                                    utmInput.value = '';
+                                                    directInput.value = '';
+                                                    displayInput.value = '';
+                                                }
+                                            }}
+                                        >
+                                            Добавить
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex justify-end">

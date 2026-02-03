@@ -254,7 +254,7 @@ export async function fetchExpenses(
     dateTo: string,
     campaignMap: Record<string, string> = {},
     directClientLogins: string[] = []
-): Promise<{ expenses: ExpenseData[], total: { spend: number; visits: number } }> {
+): Promise<{ expenses: ExpenseData[], total: { spend: number; visits: number }, hasDirectAccess: boolean }> {
     const token = process.env.YANDEX_METRIKA_TOKEN;
     const counterId = process.env.YANDEX_COUNTER_ID;
 
@@ -262,103 +262,152 @@ export async function fetchExpenses(
         throw new Error('Missing Metrika config');
     }
 
+    // 1. Fetch Visits (Session Data)
+    const visitsParams = new URLSearchParams({
+        'ids': counterId,
+        'metrics': 'ym:s:visits',
+        'dimensions': 'ym:s:UTMCampaign',
+        'date1': dateFrom,
+        'date2': dateTo,
+        'limit': '1000',
+        'accuracy': 'full',
+    });
+
+    // 2. Fetch Direct Costs (Ad Data) - ONLY if logins provided
+    const costsParams = new URLSearchParams({
+        'ids': counterId,
+        'metrics': 'ym:ad:RUBAdCost,ym:ad:USDAdCost,ym:ad:EURAdCost,ym:ad:BYNAdCost,ym:ad:KZTAdCost',
+        'dimensions': 'ym:ad:directOrder',
+        'date1': dateFrom,
+        'date2': dateTo,
+        'limit': '1000',
+        'accuracy': 'full',
+    });
+
+    if (directClientLogins.length > 0) {
+        costsParams.append('direct_client_logins', directClientLogins.join(','));
+    }
+
+    let visitsData: any[] = [];
+    let costsData: any[] = [];
+
     try {
-        const params = new URLSearchParams({
-            'ids': counterId,
-            'metrics': 'ym:s:sumAdCosts,ym:s:visits',
-            'dimensions': 'ym:s:UTMCampaign',
-            'date1': dateFrom,
-            'date2': dateTo,
-            'limit': '1000',
-            'accuracy': 'full',
-            'proposed_accuracy': 'false'
-        });
+        // Parallel fetch if logins exist
+        const promises = [
+            fetch(`https://api-metrika.yandex.net/stat/v1/data?${visitsParams}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).then(async r => {
+                if (!r.ok) throw new Error(`Visits Fetch Error ${r.status}`);
+                return r.json();
+            })
+        ];
 
         if (directClientLogins.length > 0) {
-            params.append('direct_client_logins', directClientLogins.join(','));
-        }
-
-        let data;
-
-        try {
-            const response = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${params}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                // If 400 (likely invalid metric sumAdCosts), try fallback
-                if (response.status === 400) {
-                    console.warn("Metrika 400 Error (likely missing ad costs). Retrying with visits only.");
-                    params.set('metrics', 'ym:s:visits');
-                    const responseFallback = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${params}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-
-                    if (!responseFallback.ok) {
-                        throw new Error(`Metrika Fallback Error: ${responseFallback.status}`);
+            promises.push(
+                fetch(`https://api-metrika.yandex.net/stat/v1/data?${costsParams}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                }).then(async r => {
+                    if (!r.ok) {
+                        // Log but don't fail everything if costs fail. 
+                        // This prevents 500 error if Direct API is finicky.
+                        console.warn(`Costs Fetch Error ${r.status}:`, await r.text());
+                        return { data: [] };
                     }
-                    data = await responseFallback.json();
-                } else {
-                    throw new Error(`Metrika Stat API error: ${response.status}`);
-                }
-            } else {
-                data = await response.json();
-            }
-
-        } catch (fetchErr) {
-            throw fetchErr;
+                    return r.json();
+                })
+            );
         }
 
-        const expenses: ExpenseData[] = [];
-        let totalSpend = 0;
-        let totalVisits = 0;
+        const results = await Promise.all(promises);
+        const [visitsResult, costsResult] = results;
 
-
-        if (data && data.data && Array.isArray(data.data)) {
-            data.data.forEach((row: any) => {
-                let campaignName = row.dimensions?.[0]?.name || "Не определена";
-
-                if (campaignMap[campaignName]) {
-                    campaignName = campaignMap[campaignName];
-                }
-
-                let spend = 0;
-                let visits = 0;
-
-                // Handle both behaviors: 2 metrics (spend, visits) or 1 metric (visits only)
-                if (row.metrics.length >= 2) {
-                    spend = row.metrics[0] || 0;
-                    visits = row.metrics[1] || 0;
-                } else if (row.metrics.length === 1) {
-                    visits = row.metrics[0] || 0;
-                }
-
-                if (spend > 0 || visits > 0) {
-                    expenses.push({
-                        campaign: campaignName,
-                        spend,
-                        visits,
-                        cpc: visits > 0 ? spend / visits : 0
-                    });
-
-                    totalSpend += spend;
-                    totalVisits += visits;
-                }
-            });
+        if (visitsResult && visitsResult.data) visitsData = visitsResult.data;
+        if (directClientLogins.length > 0 && results[1] && results[1].data) {
+            costsData = results[1].data;
         }
 
-        return {
-            expenses,
-            total: {
-                spend: totalSpend,
-                visits: totalVisits
-            }
-        };
-
-    } catch (err) {
-        console.error('Fetch Expenses Error:', err);
-        throw err;
+    } catch (e: any) {
+        console.error("Metrika Fetch Error:", e);
+        throw e;
     }
+
+    // Merging Logic (Name-based matching with display name support)
+    const expenseMap = new Map<string, ExpenseData>(); // Key: Display Name
+
+    // 1. Process Costs (Direct Data is the "Source of Truth" for Spend)
+    if (costsData) {
+        costsData.forEach((row: any) => {
+            const rawName = row.dimensions?.[0]?.name || "Direct Campaign";
+            // Apply display name mapping if available (Direct name -> Display name)
+            const displayName = campaignMap[rawName] || rawName;
+            const key = displayName.trim();
+
+            // Sum Spend
+            let spend = 0;
+            if (row.metrics && Array.isArray(row.metrics)) {
+                spend = row.metrics.reduce((acc: number, val: number) => acc + (val || 0), 0);
+            }
+
+            if (!expenseMap.has(key)) {
+                expenseMap.set(key, {
+                    campaign: displayName,
+                    spend: spend,
+                    visits: 0,
+                    cpc: 0
+                });
+            } else {
+                const existing = expenseMap.get(key)!;
+                existing.spend += spend;
+            }
+        });
+    }
+
+    // 2. Process Visits (Merge by mapped name)
+    if (visitsData) {
+        visitsData.forEach((row: any) => {
+            const utmName = row.dimensions?.[0]?.name || "Не определена";
+            // First map UTM to Direct name, then Direct name to Display name
+            const mappedName = campaignMap[utmName] || utmName;
+            const displayName = campaignMap[mappedName] || mappedName;
+            const key = displayName.trim();
+            const visits = row.metrics?.[0] || 0;
+
+            if (expenseMap.has(key)) {
+                // Merge into existing Cost entry
+                const entry = expenseMap.get(key)!;
+                entry.visits += visits;
+            } else {
+                // Create new Visits-only entry
+                expenseMap.set(key, {
+                    campaign: displayName,
+                    spend: 0,
+                    visits: visits,
+                    cpc: 0
+                });
+            }
+        });
+    }
+
+    // Calculate totals
+    const expenses: ExpenseData[] = [];
+    let totalSpend = 0;
+    let totalVisits = 0;
+
+    expenseMap.forEach((val) => {
+        if (val.visits > 0 || val.spend > 0) {
+            val.cpc = val.visits > 0 ? val.spend / val.visits : 0;
+            expenses.push(val);
+            totalSpend += val.spend;
+            totalVisits += val.visits;
+        }
+    });
+
+    return {
+        expenses: expenses.sort((a, b) => b.spend - a.spend),
+        total: {
+            spend: totalSpend,
+            visits: totalVisits
+        },
+        hasDirectAccess: directClientLogins.length > 0
+    };
 }

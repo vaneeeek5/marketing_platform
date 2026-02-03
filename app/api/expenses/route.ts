@@ -21,9 +21,22 @@ export async function GET(request: Request) {
         let directClientLogins: string[] = [];
         try {
             const settings = await getMetrikaSettings();
+            // Add campaign_rules mapping (ID -> Name)
             if (settings.campaign_rules) {
                 Object.entries(settings.campaign_rules).forEach(([id, rule]) => {
                     if (rule.name) legacyCampaignMap[id] = rule.name;
+                });
+            }
+            // Add expenses_mapping (UTM -> Direct Name) for expenses merging
+            // Also build display name map for renaming campaigns
+            if (settings.expenses_mapping) {
+                Object.entries(settings.expenses_mapping).forEach(([utmName, mapping]) => {
+                    // Map UTM name to Direct name for matching
+                    if (mapping.directName) legacyCampaignMap[utmName] = mapping.directName;
+                    // Also map Direct name to display name for final display
+                    if (mapping.displayName && mapping.directName) {
+                        legacyCampaignMap[mapping.directName] = mapping.displayName;
+                    }
                 });
             }
             if (settings.direct_client_logins) {
