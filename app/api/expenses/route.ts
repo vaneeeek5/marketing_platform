@@ -19,25 +19,29 @@ export async function GET(request: Request) {
 
         let legacyCampaignMap: Record<string, string> = {};
         let directClientLogins: string[] = [];
+        const campaignDictionary = new Set<string>();
+
         try {
             const settings = await getMetrikaSettings();
             // Add campaign_rules mapping (ID -> Name)
             if (settings.campaign_rules) {
                 Object.entries(settings.campaign_rules).forEach(([id, rule]) => {
-                    if (rule.name) legacyCampaignMap[id] = rule.name;
+                    if (rule.name) {
+                        legacyCampaignMap[id] = rule.name;
+                        campaignDictionary.add(rule.name);
+                    }
                 });
             }
             // Add expenses_mapping (Array format: each item has utmName, directName, displayName)
-            // This supports multiple directNames mapping to the same displayName
             if (settings.expenses_mapping && Array.isArray(settings.expenses_mapping)) {
                 settings.expenses_mapping.forEach((item) => {
-                    // Determine the final target name (Display Name is priority, fallback to Direct, then UTM)
+                    // Determine the final target name
                     const targetName = item.displayName || item.directName || item.utmName;
 
                     if (!targetName) return;
 
-                    // Map keys to the final target name directly
-                    // This avoids chaining cycles (e.g. A->B->A) and simplifies lookup
+                    campaignDictionary.add(targetName);
+
                     if (item.utmName) {
                         legacyCampaignMap[item.utmName] = targetName;
                     }
@@ -51,12 +55,14 @@ export async function GET(request: Request) {
             }
         } catch (settingsError) {
             console.warn("Failed to load settings for expenses:", settingsError);
-            // Continue without mapping if settings fail
         }
 
         const data = await fetchExpenses(startDate, endDate, legacyCampaignMap, directClientLogins);
 
-        return NextResponse.json(data);
+        return NextResponse.json({
+            ...data,
+            campaignDictionary: Array.from(campaignDictionary).sort()
+        });
     } catch (error: any) {
         console.error("Expenses API Error:", error);
         return NextResponse.json(

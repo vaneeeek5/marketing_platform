@@ -24,6 +24,7 @@ import { ExpenseData } from "@/lib/metrika";
 
 export default function ExpensesPage() {
     const [expenses, setExpenses] = useState<ExpenseData[]>([]);
+    const [campaignDictionary, setCampaignDictionary] = useState<string[]>([]);
     const [totalSpend, setTotalSpend] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -40,8 +41,11 @@ export default function ExpensesPage() {
     const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
     const [showCampaignFilter, setShowCampaignFilter] = useState(false);
 
-    // Get unique campaign names from expenses
-    const allCampaigns = Array.from(new Set(expenses.map(e => e.campaign))).sort();
+    // Get unique campaign names from expenses + dictionary
+    const allCampaigns = Array.from(new Set([
+        ...expenses.map(e => e.campaign),
+        ...campaignDictionary
+    ])).sort();
 
     // Filtered expenses based on selection (empty selection = show all)
     const filteredExpenses = selectedCampaigns.size === 0
@@ -107,6 +111,7 @@ export default function ExpensesPage() {
 
             const result = await response.json();
             setExpenses(result.expenses || []);
+            setCampaignDictionary(result.campaignDictionary || []);
             setTotalSpend(result.total?.spend || 0);
             setHasDirectAccess(result.hasDirectAccess !== false); // Default to true if missing
             setError(null);
