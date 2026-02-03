@@ -46,6 +46,7 @@ const STATUS_OPTIONS = [
     { value: "дубль", label: "Дубль" },
     { value: "обычный", label: "Обычный" },
     { value: "закрыто", label: "Закрыто" },
+    { value: "empty", label: "Без статуса" },
 ];
 
 const TARGET_OPTIONS = [
@@ -206,9 +207,12 @@ export default function LeadsPage() {
 
         if (selectedStatuses.length > 0) {
             filtered = filtered.filter((l) =>
-                selectedStatuses.some(status =>
-                    l.qualification?.toLowerCase().trim() === status.toLowerCase().trim()
-                )
+                selectedStatuses.some(status => {
+                    if (status === 'empty') {
+                        return !l.qualification || l.qualification.trim() === '';
+                    }
+                    return l.qualification?.toLowerCase().trim() === status.toLowerCase().trim();
+                })
             );
         }
 
