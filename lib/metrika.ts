@@ -309,30 +309,46 @@ export async function fetchExpenses(
         let totalSpend = 0;
         let totalVisits = 0;
 
-        if (spend > 0 || visits > 0) {
-            expenses.push({
-                campaign: campaignNameRaw,
-                spend,
-                visits,
-                cpc: visits > 0 ? spend / visits : 0
+
+        if (data && data.data && Array.isArray(data.data)) {
+            data.data.forEach((row: any) => {
+                const campaignNameRaw = row.dimensions?.[0]?.name || "Не определена";
+
+                let spend = 0;
+                let visits = 0;
+
+                // Handle both behaviors: 2 metrics (spend, visits) or 1 metric (visits only)
+                if (row.metrics.length >= 2) {
+                    spend = row.metrics[0] || 0;
+                    visits = row.metrics[1] || 0;
+                } else if (row.metrics.length === 1) {
+                    visits = row.metrics[0] || 0;
+                }
+
+                if (spend > 0 || visits > 0) {
+                    expenses.push({
+                        campaign: campaignNameRaw,
+                        spend,
+                        visits,
+                        cpc: visits > 0 ? spend / visits : 0
+                    });
+
+                    totalSpend += spend;
+                    totalVisits += visits;
+                }
             });
-
-            totalSpend += spend;
-            totalVisits += visits;
         }
-    });
-}
 
-return {
-    expenses,
-    total: {
-        spend: totalSpend,
-        visits: totalVisits
-    }
-};
+        return {
+            expenses,
+            total: {
+                spend: totalSpend,
+                visits: totalVisits
+            }
+        };
 
     } catch (err) {
-    console.error('Fetch Expenses Error:', err);
-    throw err;
-}
+        console.error('Fetch Expenses Error:', err);
+        throw err;
+    }
 }
