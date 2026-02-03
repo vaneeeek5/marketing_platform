@@ -22,15 +22,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge } from "@/components/status-badge";
 import { Lead, LeadsResponse } from "@/types";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
-import { Badge } from "@/components/ui/badge";
 import CampaignBadge from "@/components/CampaignBadge";
 import { formatDate, formatTime, parseDate } from "@/lib/utils";
 import {
     Loader2,
-
     Filter,
     Save,
     X,
@@ -39,7 +36,6 @@ import {
     Calendar,
     ArrowUpDown,
     CopyCheck,
-    RefreshCw,
 } from "lucide-react";
 
 const RESET_OPTION = { value: "-", label: "-" };
@@ -81,8 +77,6 @@ function getQualificationColor(status: string | number | null | undefined) {
 }
 
 export default function LeadsPage() {
-    console.log("Leads page mounting...");
-    // ... state ...
     const [leads, setLeads] = useState<Lead[]>([]);
     const [filteredLeads, setFilteredLeads] = useState<Lead[]>([]);
     const [loading, setLoading] = useState(true);
@@ -92,8 +86,9 @@ export default function LeadsPage() {
 
     // Filters
     const [campaignFilter, setCampaignFilter] = useState<string>("all");
-    const [statusFilter, setStatusFilter] = useState<string>("all");
+    const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]); // Multi-select
     const [searchQuery, setSearchQuery] = useState<string>("");
+    const [showStatusFilter, setShowStatusFilter] = useState(false);
 
     // Date Filter State
     const [startDate, setStartDate] = useState<string>("");
@@ -126,8 +121,6 @@ export default function LeadsPage() {
         if (!sortConfig.key) return filteredLeads;
 
         return [...filteredLeads].sort((a, b) => {
-            // For dates, we might need parsing if format is DD.MM.YYYY
-            // Assuming string comparison works for simplified checking or ISO dates
             const aVal = sortConfig.key === 'date' ? a.date : (a.campaign || '');
             const bVal = sortConfig.key === 'date' ? b.date : (b.campaign || '');
 
@@ -136,28 +129,6 @@ export default function LeadsPage() {
             return 0;
         });
     }, [filteredLeads, sortConfig]);
-
-    const handleSyncLatest = async () => {
-        const toastId = toast.loading("Обновление данных...");
-        try {
-            const response = await fetch("/api/metrika/sync-latest", {
-                method: "POST",
-            });
-            const result = await response.json();
-
-            if (result.success) {
-                toast.dismiss(toastId);
-                successNotification(`Добавлено ${result.added} новых лидов`);
-                fetchLeads();
-            } else {
-                toast.dismiss(toastId);
-                toast.error("Ошибка обновления: " + result.error);
-            }
-        } catch (err) {
-            toast.dismiss(toastId);
-            toast.error("Ошибка при выполнении запроса");
-        }
-    };
 
     const handleCheckDuplicates = async () => {
         const toastId = toast.loading("Проверка дублей...");
@@ -184,7 +155,6 @@ export default function LeadsPage() {
     const fetchLeads = useCallback(async () => {
         if (!currentSheet) return;
 
-        console.log("Leads page: Starting fetch...", { sheet: currentSheet });
         setLoading(true);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
@@ -197,13 +167,10 @@ export default function LeadsPage() {
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-                const errorText = await response.text();
-                console.error("Leads fetch failed:", response.status, errorText);
                 throw new Error(`Ошибка загрузки данных: ${response.status}`);
             }
 
             const result: LeadsResponse = await response.json();
-            console.log("Leads fetched successfully:", result.leads.length);
             setLeads(result.leads);
 
             // Extract unique campaigns
@@ -213,7 +180,6 @@ export default function LeadsPage() {
             setCampaigns(uniqueCampaigns);
             setError(null);
         } catch (err: any) {
-            console.error("Leads fetch error:", err);
             if (err.name === 'AbortError') {
                 setError("Превышено время ожидания загрузки (timeout 15s). Попробуйте обновить страницу.");
                 toast.error("Слишком долгая загрузка");
@@ -226,7 +192,6 @@ export default function LeadsPage() {
         }
     }, [currentSheet]);
 
-    // ... rest of hooks ...
     useEffect(() => {
         fetchLeads();
     }, [currentSheet, fetchLeads]);
@@ -239,9 +204,11 @@ export default function LeadsPage() {
             filtered = filtered.filter((l) => l.campaign === campaignFilter);
         }
 
-        if (statusFilter !== "all") {
+        if (selectedStatuses.length > 0) {
             filtered = filtered.filter((l) =>
-                l.qualification?.toLowerCase().includes(statusFilter.toLowerCase())
+                selectedStatuses.some(status =>
+                    l.qualification?.toLowerCase().trim() === status.toLowerCase().trim()
+                )
             );
         }
 
@@ -264,14 +231,12 @@ export default function LeadsPage() {
             filtered = filtered.filter((l) => {
                 const date = parseDate(l.date);
                 if (!date) return false;
-                // Reset hours for comparison to be safe with timezones if needed, 
-                // but since we cover 00:00 to 23:59 of selected days, simple comparison works if standard objects.
                 return date >= start && date <= end;
             });
         }
 
         setFilteredLeads(filtered);
-    }, [leads, campaignFilter, statusFilter, searchQuery, startDate, endDate]);
+    }, [leads, campaignFilter, selectedStatuses, searchQuery, startDate, endDate]);
 
     const handleEdit = (lead: Lead) => {
         setEditingRow(lead.rowIndex);
@@ -287,11 +252,8 @@ export default function LeadsPage() {
         setEditValues({ qualification: "", comment: "", sales: "" });
     };
 
-    // Generic inline update handler (optimistic)
     const handleInlineUpdate = async (rowIndex: number, field: string, value: string) => {
-        // Handle reset
         const effectiveValue = value === '-' ? '' : value;
-
         const previousLeads = [...leads];
         setLeads((prev) =>
             prev.map((lead) =>
@@ -324,7 +286,6 @@ export default function LeadsPage() {
     const handleSave = async (rowIndex: number) => {
         setSaving(true);
         try {
-            // Update SALES
             if (editValues.sales !== undefined) {
                 await fetch("/api/leads", {
                     method: "PATCH",
@@ -338,7 +299,6 @@ export default function LeadsPage() {
                 });
             }
 
-            // Update COMMENT
             if (editValues.comment !== undefined) {
                 await fetch("/api/leads", {
                     method: "PATCH",
@@ -352,7 +312,6 @@ export default function LeadsPage() {
                 });
             }
 
-            // Update local state
             setLeads((prev) =>
                 prev.map((lead) =>
                     lead.rowIndex === rowIndex
@@ -410,14 +369,6 @@ export default function LeadsPage() {
                 </div>
             </div>
 
-            {/* Loading indicator */}
-            {loading && (
-                <div className="fixed top-20 right-4 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-sm flex items-center gap-2 shadow-lg z-50">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Загрузка...
-                </div>
-            )}
-
             {/* Filters */}
             <Card>
                 <CardHeader className="pb-4">
@@ -454,20 +405,64 @@ export default function LeadsPage() {
                             </SelectContent>
                         </Select>
 
-                        {/* Status filter */}
-                        <Select value={statusFilter} onValueChange={setStatusFilter}>
-                            <SelectTrigger className="w-full sm:w-[180px]">
-                                <SelectValue placeholder="Статус" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Все статусы</SelectItem>
-                                {STATUS_OPTIONS.map((status) => (
-                                    <SelectItem key={status.value} value={status.value}>
-                                        {status.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        {/* Status Filter Multi-Select */}
+                        <div className="relative">
+                            <Button
+                                variant="outline"
+                                className="w-full justify-between sm:w-[200px]"
+                                onClick={() => setShowStatusFilter(!showStatusFilter)}
+                            >
+                                <span className="truncate">
+                                    {selectedStatuses.length === 0
+                                        ? "Все статусы"
+                                        : `Выбрано: ${selectedStatuses.length}`}
+                                </span>
+                                <Filter className="h-4 w-4 opacity-50" />
+                            </Button>
+
+                            {showStatusFilter && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={() => setShowStatusFilter(false)}
+                                    />
+                                    <div className="absolute z-50 mt-2 w-56 bg-popover text-popover-foreground rounded-lg shadow-xl border p-3 animate-in fade-in zoom-in-95 duration-200">
+                                        <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                                            <span className="font-medium text-sm">Статусы</span>
+                                            <span
+                                                className="text-xs text-primary cursor-pointer hover:underline"
+                                                onClick={() => setSelectedStatuses([])}
+                                            >
+                                                Сбросить
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                                            {STATUS_OPTIONS.filter(o => o.value !== '-').map((option) => {
+                                                const isSelected = selectedStatuses.includes(option.value);
+                                                return (
+                                                    <div
+                                                        key={option.value}
+                                                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded-md cursor-pointer"
+                                                        onClick={() => {
+                                                            if (isSelected) {
+                                                                setSelectedStatuses(prev => prev.filter(s => s !== option.value));
+                                                            } else {
+                                                                setSelectedStatuses(prev => [...prev, option.value]);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div className={`h-4 w-4 rounded border flex items-center justify-center ${isSelected ? "bg-primary border-primary" : "border-input"}`}>
+                                                            {isSelected && <div className="h-2.5 w-3.5 bg-primary-foreground mask-check" style={{ clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)", backgroundColor: "white" }} />}
+                                                        </div>
+                                                        <span className="text-sm">{option.label}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
 
                         {/* Date Filter */}
                         <div className="relative w-full sm:w-auto">

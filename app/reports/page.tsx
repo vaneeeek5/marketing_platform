@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Table,
@@ -14,8 +14,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { CampaignStats, AnalyticsResponse } from "@/types";
 import { formatNumber, formatCurrency, formatPercent } from "@/lib/utils";
-import { FileText, Download, Loader2, BarChart3 } from "lucide-react";
+import { FileText, Download, Loader2, BarChart3, CalendarDays } from "lucide-react";
 import * as XLSX from "xlsx";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { ru } from 'date-fns/locale';
+import { format } from 'date-fns';
+import { registerLocale } from "react-datepicker";
+registerLocale('ru', ru);
 
 export default function ReportsPage() {
     const [data, setData] = useState<AnalyticsResponse | null>(null);
@@ -23,21 +29,112 @@ export default function ReportsPage() {
     const [error, setError] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
 
-    useEffect(() => {
-        async function fetchData() {
-            try {
-                const response = await fetch("/api/analytics/summary");
-                if (!response.ok) throw new Error("Ошибка загрузки данных");
-                const result = await response.json();
-                setData(result);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : "Неизвестная ошибка");
-            } finally {
-                setLoading(false);
-            }
+    // Period state
+    const [period, setPeriod] = useState<string>("quarter");
+    const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
+    const [startDate, endDate] = dateRange;
+    const [showPeriodPopup, setShowPeriodPopup] = useState(false);
+    const [tempPeriod, setTempPeriod] = useState<string>("quarter");
+    const [showCustomRange, setShowCustomRange] = useState(false);
+
+    // Calculate dates
+    const calculatePeriodDates = (periodType: string) => {
+        const today = new Date();
+        const end = new Date(today);
+        const start = new Date(today);
+
+        switch (periodType) {
+            case "week":
+                start.setDate(today.getDate() - 7);
+                break;
+            case "month":
+                start.setDate(today.getDate() - 30);
+                break;
+            case "quarter":
+                start.setDate(today.getDate() - 90);
+                break;
+            case "year":
+                start.setDate(today.getDate() - 365);
+                break;
+            default:
+                return { start: null, end: null };
         }
-        fetchData();
+        return { start, end };
+    };
+
+    const fetchData = useCallback(async (selectedPeriod: string, customStart?: Date | null, customEnd?: Date | null) => {
+        setLoading(true);
+        try {
+            let url = "/api/analytics/summary?";
+
+            let s: string | undefined;
+            let e: string | undefined;
+
+            if (selectedPeriod === "custom" && customStart && customEnd) {
+                // Custom range
+                s = format(customStart, 'yyyy-MM-dd');
+                e = format(customEnd, 'yyyy-MM-dd');
+                url += `period=custom&startDate=${s}&endDate=${e}`;
+            } else {
+                const { start, end } = calculatePeriodDates(selectedPeriod);
+                if (start && end) {
+                    s = format(start, 'yyyy-MM-dd');
+                    e = format(end, 'yyyy-MM-dd');
+                    url += `period=custom&startDate=${s}&endDate=${e}`;
+                } else {
+                    url += `period=${selectedPeriod}`;
+                }
+            }
+
+            console.log("Fetching reports data:", url);
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Ошибка загрузки данных");
+            const result = await response.json();
+            setData(result);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Неизвестная ошибка");
+        } finally {
+            setLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        fetchData("quarter");
+    }, [fetchData]);
+
+    const handleApplyPeriod = () => {
+        if (tempPeriod === 'custom') {
+            setShowPeriodPopup(false);
+            setShowCustomRange(true);
+        } else {
+            setPeriod(tempPeriod);
+            setDateRange([null, null]);
+            fetchData(tempPeriod);
+            setShowPeriodPopup(false);
+            setShowCustomRange(false);
+        }
+    };
+
+    const handleApplyCustomRange = () => {
+        if (startDate && endDate) {
+            setPeriod('custom');
+            fetchData('custom', startDate, endDate);
+            setShowCustomRange(false);
+        }
+    };
+
+    const getPeriodLabel = () => {
+        if (period === 'custom' && startDate && endDate) {
+            return `${format(startDate, 'dd.MM.yyyy')} - ${format(endDate, 'dd.MM.yyyy')}`;
+        }
+        switch (period) {
+            case "week": return "последние 7 дней";
+            case "month": return "последние 30 дней";
+            case "quarter": return "последние 90 дней";
+            case "year": return "последние 365 дней";
+            default: return "выбранный период";
+        }
+    };
 
     const handleExport = () => {
         if (!data?.campaignStats) return;
@@ -147,18 +244,128 @@ export default function ReportsPage() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Отчёты</h1>
                     <p className="text-muted-foreground mt-1">
-                        Аналитика эффективности рекламных кампаний
+                        Аналитика эффективности рекламных кампаний за {getPeriodLabel()}
                     </p>
                 </div>
 
-                <Button onClick={handleExport} disabled={exporting} className="gap-2">
-                    {exporting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Download className="h-4 w-4" />
+                <div className="flex gap-2 items-center">
+                    {/* Filter Button */}
+                    <div className="relative">
+                        <div
+                            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted/50 cursor-pointer bg-background"
+                            onClick={() => setShowPeriodPopup(!showPeriodPopup)}
+                        >
+                            <CalendarDays className="h-5 w-5 text-muted-foreground" />
+                            <span className="font-medium text-sm">
+                                {period === 'custom' ? getPeriodLabel() :
+                                    (period === 'week' ? "Неделя" :
+                                        period === 'month' ? "Месяц" :
+                                            period === 'quarter' ? "Квартал" :
+                                                period === 'year' ? "Год" : "Период")}
+                            </span>
+                        </div>
+
+                        {/* Period Popup */}
+                        {showPeriodPopup && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setShowPeriodPopup(false)}
+                                />
+
+                                <div className="absolute right-0 z-50 mt-2 w-72 bg-popover text-popover-foreground rounded-lg shadow-xl border p-4 animate-in fade-in zoom-in-95 duration-200">
+                                    <h3 className="font-semibold mb-3 text-sm">Выберите период</h3>
+
+                                    <div className="space-y-1">
+                                        {[
+                                            { value: 'week', label: 'Неделя', desc: 'Последние 7 дней' },
+                                            { value: 'month', label: 'Месяц', desc: 'Последние 30 дней' },
+                                            { value: 'quarter', label: 'Квартал', desc: 'Последние 90 дней' },
+                                            { value: 'year', label: 'Год', desc: 'Последние 365 дней' },
+                                            { value: 'custom', label: '📅 Свой диапазон', desc: 'Выбрать даты вручную' }
+                                        ].map(option => (
+                                            <div
+                                                key={option.value}
+                                                className={`flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors ${tempPeriod === option.value ? 'bg-primary/10' : 'hover:bg-muted'
+                                                    }`}
+                                                onClick={() => setTempPeriod(option.value)}
+                                            >
+                                                <div className={`mt-0.5 h-4 w-4 rounded-full border border-primary flex items-center justify-center ${tempPeriod === option.value ? 'bg-primary' : ''
+                                                    }`}>
+                                                    {tempPeriod === option.value && <div className="h-2 w-2 rounded-full bg-primary-foreground" />}
+                                                </div>
+                                                <div>
+                                                    <div className="font-medium text-sm">{option.label}</div>
+                                                    <div className="text-xs text-muted-foreground">{option.desc}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <Button
+                                        onClick={handleApplyPeriod}
+                                        className="w-full mt-4"
+                                        size="sm"
+                                    >
+                                        Применить
+                                    </Button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Custom Range Modal */}
+                    {showCustomRange && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
+                            <div className="bg-background rounded-lg shadow-lg w-full max-w-sm p-6 border">
+                                <h3 className="text-lg font-semibold mb-4">Выберите диапазон дат</h3>
+
+                                <div className="space-y-4">
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-medium">Период:</label>
+                                        <DatePicker
+                                            selected={startDate}
+                                            onChange={(update: [Date | null, Date | null]) => {
+                                                setDateRange(update);
+                                            }}
+                                            startDate={startDate}
+                                            endDate={endDate}
+                                            selectsRange
+                                            inline
+                                            locale="ru"
+                                        />
+                                    </div>
+
+                                    <div className="flex gap-3 pt-2">
+                                        <Button
+                                            onClick={handleApplyCustomRange}
+                                            disabled={!startDate || !endDate}
+                                            className="flex-1"
+                                        >
+                                            Применить
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setShowCustomRange(false)}
+                                            className="flex-1"
+                                        >
+                                            Отмена
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     )}
-                    Экспорт в Excel
-                </Button>
+
+                    <Button onClick={handleExport} disabled={exporting} className="gap-2">
+                        {exporting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Download className="h-4 w-4" />
+                        )}
+                        Экспорт
+                    </Button>
+                </div>
             </div>
 
             {/* Summary Cards */}
