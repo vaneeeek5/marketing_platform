@@ -595,27 +595,29 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
         }
     }
 
-    // Delete expense entries that no longer exist (both old and new format)
-    const existingExpenseKeys = Array.from(keyRowMap.keys()).filter(
-        k => k.startsWith("expense_item_") || k.startsWith("expense_mapping_")
-    );
+    // Delete expense entries ONLY if we are updating expenses_mapping
+    if (settings.expenses_mapping) {
+        const existingExpenseKeys = Array.from(keyRowMap.keys()).filter(
+            k => k.startsWith("expense_item_") || k.startsWith("expense_mapping_")
+        );
 
-    const newExpenseKeys = new Set(
-        (settings.expenses_mapping || []).map(item => `expense_item_${item.id}`)
-    );
+        const newExpenseKeys = new Set(
+            settings.expenses_mapping.map(item => `expense_item_${item.id}`)
+        );
 
-    // Find rows to delete (in reverse order to avoid index shifting)
-    const rowsToDelete: number[] = [];
-    for (const existingKey of existingExpenseKeys) {
-        if (!newExpenseKeys.has(existingKey)) {
-            rowsToDelete.push(keyRowMap.get(existingKey)!);
+        // Find rows to delete (in reverse order to avoid index shifting)
+        const rowsToDelete: number[] = [];
+        for (const existingKey of existingExpenseKeys) {
+            if (!newExpenseKeys.has(existingKey)) {
+                rowsToDelete.push(keyRowMap.get(existingKey)!);
+            }
         }
-    }
 
-    // Delete rows in reverse order (highest row first)
-    rowsToDelete.sort((a, b) => b - a);
-    for (const rowNum of rowsToDelete) {
-        await deleteRow("MetrikaSettings", rowNum);
+        // Delete rows in reverse order (highest row first)
+        rowsToDelete.sort((a, b) => b - a);
+        for (const rowNum of rowsToDelete) {
+            await deleteRow("MetrikaSettings", rowNum);
+        }
     }
 }
 
