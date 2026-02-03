@@ -2,6 +2,21 @@
 
 const METRIKA_API_BASE = 'https://api-metrika.yandex.net/management/v1';
 
+/**
+ * Normalize campaign name for comparison:
+ * - Lowercase
+ * - Trim
+ * - Replace dashes (em/en) with standard hyphen
+ * - Collapse spaces
+ */
+function normalizeCampaignName(name: string): string {
+    return name
+        .toLowerCase()
+        .replace(/[\u2013\u2014]/g, "-") // Replace Em/En dash with hyphen
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 export interface MetrikaLead {
     date: string;
     time: string;
@@ -139,6 +154,12 @@ function parseTsvData(
     const lines = tsv.trim().split('\n');
     const leads: MetrikaLead[] = [];
 
+    // Create normalized map for case-insensitive/robust lookup
+    const normalizedMap = new Map<string, string>();
+    Object.entries(campaignMap).forEach(([key, value]) => {
+        normalizedMap.set(normalizeCampaignName(key), value);
+    });
+
     // Skip header row (first line)
     // Header row example: ym:s:date  ym:s:dateTime  ym:s:clientID  ym:s:UTMCampaign  ym:s:lastTrafficSource  ym:s:goalsID ym:s:UTMSource
     for (let i = 1; i < lines.length; i++) {
@@ -159,17 +180,21 @@ function parseTsvData(
 
             // Map campaign name if mapping exists
             let campaign = utmCampaign || lastSource || 'Прямые заходы';
-            // Try to map exactly the utmCampaign value or the campaign ID if it's there
-            // The user said: "{90018159} а мне нужно чтобы она называлась поиск"
-            // So we check keys against the raw value.
-            // Often utmCampaign might be an ID or a string.
-            // We check exact match for mapping.
-            if (campaignMap[campaign]) {
-                campaign = campaignMap[campaign];
-            } else if (utmCampaign && campaignMap[utmCampaign]) {
-                campaign = campaignMap[utmCampaign];
-            }
 
+            // Normalized Lookup Logic
+            const normCampaign = normalizeCampaignName(campaign);
+            const mappedExact = normalizedMap.get(normCampaign);
+
+            if (mappedExact) {
+                campaign = mappedExact;
+            } else if (utmCampaign) {
+                // Try looking up JUST the UTM campaign if strictly that is mapped
+                const normUtm = normalizeCampaignName(utmCampaign);
+                const mappedUtm = normalizedMap.get(normUtm);
+                if (mappedUtm) {
+                    campaign = mappedUtm;
+                }
+            }
 
             // Parse goalsID field which is like "[111,222]" or "[]"
             const visitedGoals = goalsStr.replace(/[\[\]]/g, '')
@@ -262,6 +287,35 @@ export async function fetchExpenses(
         throw new Error('Missing Metrika config');
     }
 
+    // Prepare Normalized Map
+    const normalizedMap = new Map<string, string>();
+    Object.entries(campaignMap).forEach(([key, value]) => {
+        normalizedMap.set(normalizeCampaignName(key), value);
+    });
+
+    /**
+     * Helper to get mapped name recursively (chaining)
+     * e.g. UTM "mk-1" -> Direct "MK 1" -> Display "Marketing 1"
+     */
+    const getMappedName = (rawName: string): string => {
+        if (!rawName) return "";
+        const norm = normalizeCampaignName(rawName);
+        const mapped = normalizedMap.get(norm);
+
+        if (mapped) {
+            // Check if the mapped value itself maps to something else
+            // This handles the UTM -> Direct -> Display chain
+            const normMapped = normalizeCampaignName(mapped);
+            // Avoid infinite loops if mapped value is same as key
+            if (normMapped !== norm) {
+                const doubleMapped = normalizedMap.get(normMapped);
+                if (doubleMapped) return doubleMapped;
+            }
+            return mapped;
+        }
+        return rawName;
+    };
+
     // 1. Fetch Visits (Session Data)
     const visitsParams = new URLSearchParams({
         'ids': counterId,
@@ -338,8 +392,8 @@ export async function fetchExpenses(
     if (costsData) {
         costsData.forEach((row: any) => {
             const rawName = row.dimensions?.[0]?.name || "Direct Campaign";
-            // Apply display name mapping if available (Direct name -> Display name)
-            const displayName = campaignMap[rawName] || rawName;
+            // Normalization applied here
+            const displayName = getMappedName(rawName);
             const key = displayName.trim();
 
             // Sum Spend
@@ -366,9 +420,8 @@ export async function fetchExpenses(
     if (visitsData) {
         visitsData.forEach((row: any) => {
             const utmName = row.dimensions?.[0]?.name || "Не определена";
-            // First map UTM to Direct name, then Direct name to Display name
-            const mappedName = campaignMap[utmName] || utmName;
-            const displayName = campaignMap[mappedName] || mappedName;
+            // Normalization applied here
+            const displayName = getMappedName(utmName);
             const key = displayName.trim();
             const visits = row.metrics?.[0] || 0;
 
