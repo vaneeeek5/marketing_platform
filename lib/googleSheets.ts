@@ -431,7 +431,8 @@ export interface MetrikaSettings {
     allowed_utm_sources: string[];
     campaign_rules: Record<string, CampaignRule>;
     direct_client_logins?: string[];
-    expenses_mapping?: Record<string, { directName: string; displayName: string }>;
+    // Array structure allows multiple directNames per UTM
+    expenses_mapping?: Array<{ id: string; utmName: string; directName: string; displayName: string }>;
 }
 
 /**
@@ -449,7 +450,7 @@ export async function getMetrikaSettings(): Promise<MetrikaSettings> {
         allowed_utm_sources: [],
         campaign_rules: {},
         direct_client_logins: [],
-        expenses_mapping: {}
+        expenses_mapping: []
     };
 
     data.forEach(row => {
@@ -490,16 +491,38 @@ export async function getMetrikaSettings(): Promise<MetrikaSettings> {
                 settings.campaign_rules[campId] = { name: value };
             }
         }
-        // Expenses mapping format: expense_mapping_utmname -> JSON({directName, displayName})
-        else if (key.startsWith("expense_mapping_")) {
-            const utmName = key.replace("expense_mapping_", "");
-            if (!settings.expenses_mapping) settings.expenses_mapping = {};
+        // New array-based expenses mapping format: expense_item_{id} -> JSON
+        else if (key.startsWith("expense_item_")) {
+            const id = key.replace("expense_item_", "");
+            if (!settings.expenses_mapping) settings.expenses_mapping = [];
             try {
                 const parsed = JSON.parse(value);
-                settings.expenses_mapping[utmName] = parsed;
+                settings.expenses_mapping.push({ id, ...parsed });
             } catch {
-                // Legacy format: value is just directName string
-                settings.expenses_mapping[utmName] = { directName: value, displayName: value };
+                console.warn(`Failed to parse expense item ${id}`);
+            }
+        }
+        // Legacy format migration: expense_mapping_utmname -> JSON({directName, displayName})
+        else if (key.startsWith("expense_mapping_")) {
+            const utmName = key.replace("expense_mapping_", "");
+            if (!settings.expenses_mapping) settings.expenses_mapping = [];
+            try {
+                const parsed = JSON.parse(value);
+                // Migrate to array format with generated ID
+                settings.expenses_mapping.push({
+                    id: `legacy_${utmName}`,
+                    utmName,
+                    directName: parsed.directName || value,
+                    displayName: parsed.displayName || parsed.directName || value
+                });
+            } catch {
+                // Legacy string-only format
+                settings.expenses_mapping.push({
+                    id: `legacy_${utmName}`,
+                    utmName,
+                    directName: value,
+                    displayName: value
+                });
             }
         }
     });
@@ -552,8 +575,12 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
     }
 
     if (settings.expenses_mapping) {
-        Object.entries(settings.expenses_mapping).forEach(([utmName, mapping]) => {
-            updates[`expense_mapping_${utmName}`] = JSON.stringify(mapping);
+        settings.expenses_mapping.forEach((item) => {
+            updates[`expense_item_${item.id}`] = JSON.stringify({
+                utmName: item.utmName,
+                directName: item.directName,
+                displayName: item.displayName
+            });
         });
     }
 
@@ -568,11 +595,12 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
         }
     }
 
-    // Delete expense_mapping entries that no longer exist
-    // We need to find all existing expense_mapping_* keys and delete those not in settings
-    const existingExpenseKeys = Array.from(keyRowMap.keys()).filter(k => k.startsWith("expense_mapping_"));
+    // Delete expense entries that no longer exist (both old and new format)
+    const existingExpenseKeys = Array.from(keyRowMap.keys()).filter(
+        k => k.startsWith("expense_item_") || k.startsWith("expense_mapping_")
+    );
     const newExpenseKeys = new Set(
-        Object.keys(settings.expenses_mapping || {}).map(k => `expense_mapping_${k}`)
+        (settings.expenses_mapping || []).map(item => `expense_item_${item.id}`)
     );
 
     // Find rows to delete (in reverse order to avoid index shifting)

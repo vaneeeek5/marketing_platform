@@ -27,15 +27,15 @@ export async function GET(request: Request) {
                     if (rule.name) legacyCampaignMap[id] = rule.name;
                 });
             }
-            // Add expenses_mapping (UTM -> Direct Name) for expenses merging
-            // Also build display name map for renaming campaigns
-            if (settings.expenses_mapping) {
-                Object.entries(settings.expenses_mapping).forEach(([utmName, mapping]) => {
+            // Add expenses_mapping (Array format: each item has utmName, directName, displayName)
+            // This supports multiple directNames mapping to the same displayName
+            if (settings.expenses_mapping && Array.isArray(settings.expenses_mapping)) {
+                settings.expenses_mapping.forEach((item) => {
                     // Map UTM name to Direct name for matching
-                    if (mapping.directName) legacyCampaignMap[utmName] = mapping.directName;
+                    if (item.directName) legacyCampaignMap[item.utmName] = item.directName;
                     // Also map Direct name to display name for final display
-                    if (mapping.displayName && mapping.directName) {
-                        legacyCampaignMap[mapping.directName] = mapping.displayName;
+                    if (item.displayName && item.directName) {
+                        legacyCampaignMap[item.directName] = item.displayName;
                     }
                 });
             }

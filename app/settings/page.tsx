@@ -168,7 +168,21 @@ function MetrikaSyncSection() {
     const [loading, setLoading] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [goals, setGoals] = useState<any[]>([]);
-    const [settings, setSettings] = useState<any>({
+
+    // Type for expense mapping item
+    type ExpenseMappingItem = { id: string; utmName: string; directName: string; displayName: string };
+
+    const [settings, setSettings] = useState<{
+        auto_sync_enabled: boolean;
+        sync_time: string;
+        goals: Record<string, boolean>;
+        allowed_utm_sources?: string[];
+        direct_client_logins?: string[];
+        expenses_mapping?: ExpenseMappingItem[];
+        last_sync_date?: string;
+        last_sync_result?: string;
+        [key: string]: any;
+    }>({
         auto_sync_enabled: true,
         sync_time: "09:00",
         goals: {}
@@ -583,7 +597,7 @@ function MetrikaSyncSection() {
                             onClick={() => setShowExpensesMapping(!showExpensesMapping)}
                         >
                             <label className="text-sm font-medium cursor-pointer">
-                                Маппинг расходов ({Object.keys(settings.expenses_mapping || {}).length})
+                                Маппинг расходов ({(settings.expenses_mapping || []).length})
                             </label>
                             <span className="text-xs text-muted-foreground">
                                 {showExpensesMapping ? "▲ Свернуть" : "▼ Развернуть"}
@@ -593,70 +607,71 @@ function MetrikaSyncSection() {
                         {showExpensesMapping && (
                             <div className="border rounded-md p-4 space-y-4 bg-muted/10 animate-in slide-in-from-top-2">
                                 <p className="text-xs text-muted-foreground">
-                                    Связывает UTM-кампании с кампаниями Яндекс.Директа и задаёт отображаемое название.
+                                    Связывает UTM-кампании с кампаниями Яндекс.Директа. Можно добавлять несколько названий Директа для одной UTM-метки.
                                 </p>
 
-                                {Object.entries(settings.expenses_mapping || {}).map(([utmName, mapping]) => {
-                                    const directName = typeof mapping === 'string' ? mapping : mapping?.directName || '';
-                                    const displayName = typeof mapping === 'string' ? mapping : mapping?.displayName || '';
-                                    return (
-                                        <div key={utmName} className="flex items-center gap-2 p-2 bg-background rounded border">
-                                            <div className="w-32 bg-muted px-2 py-1 rounded text-xs font-mono truncate" title={utmName}>
-                                                {utmName}
-                                            </div>
-                                            <span className="text-muted-foreground">→</span>
-                                            <Input
-                                                value={directName}
-                                                onChange={(e) => {
-                                                    const newMapping = {
-                                                        ...settings.expenses_mapping,
-                                                        [utmName]: { directName: e.target.value, displayName: displayName || e.target.value }
-                                                    };
-                                                    setSettings({ ...settings, expenses_mapping: newMapping });
-                                                }}
-                                                className="w-40 h-8 text-xs"
-                                                placeholder="Название в Директе"
-                                            />
-                                            <span className="text-muted-foreground">→</span>
-                                            <Input
-                                                value={displayName}
-                                                onChange={(e) => {
-                                                    const newMapping = {
-                                                        ...settings.expenses_mapping,
-                                                        [utmName]: { directName: directName, displayName: e.target.value }
-                                                    };
-                                                    setSettings({ ...settings, expenses_mapping: newMapping });
-                                                }}
-                                                className="flex-1 h-8 text-xs"
-                                                placeholder="Отображаемое название"
-                                            />
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-destructive"
-                                                onClick={() => {
-                                                    const newMapping = { ...settings.expenses_mapping };
-                                                    delete newMapping[utmName];
-                                                    setSettings({ ...settings, expenses_mapping: newMapping });
-                                                }}
-                                            >
-                                                ×
-                                            </Button>
-                                        </div>
-                                    );
-                                })}
+                                {(settings.expenses_mapping || []).map((item) => (
+                                    <div key={item.id} className="flex items-center gap-2 p-2 bg-background rounded border">
+                                        <Input
+                                            value={item.utmName}
+                                            onChange={(e) => {
+                                                const newMapping = (settings.expenses_mapping || []).map(m =>
+                                                    m.id === item.id ? { ...m, utmName: e.target.value } : m
+                                                );
+                                                setSettings({ ...settings, expenses_mapping: newMapping });
+                                            }}
+                                            className="w-28 h-8 text-xs font-mono"
+                                            placeholder="UTM-метка"
+                                        />
+                                        <span className="text-muted-foreground">→</span>
+                                        <Input
+                                            value={item.directName}
+                                            onChange={(e) => {
+                                                const newMapping = (settings.expenses_mapping || []).map(m =>
+                                                    m.id === item.id ? { ...m, directName: e.target.value } : m
+                                                );
+                                                setSettings({ ...settings, expenses_mapping: newMapping });
+                                            }}
+                                            className="w-44 h-8 text-xs"
+                                            placeholder="Название в Директе"
+                                        />
+                                        <span className="text-muted-foreground">→</span>
+                                        <Input
+                                            value={item.displayName}
+                                            onChange={(e) => {
+                                                const newMapping = (settings.expenses_mapping || []).map(m =>
+                                                    m.id === item.id ? { ...m, displayName: e.target.value } : m
+                                                );
+                                                setSettings({ ...settings, expenses_mapping: newMapping });
+                                            }}
+                                            className="flex-1 h-8 text-xs"
+                                            placeholder="Отображаемое название"
+                                        />
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-destructive"
+                                            onClick={() => {
+                                                const newMapping = (settings.expenses_mapping || []).filter(m => m.id !== item.id);
+                                                setSettings({ ...settings, expenses_mapping: newMapping });
+                                            }}
+                                        >
+                                            ×
+                                        </Button>
+                                    </div>
+                                ))}
 
                                 <div className="bg-muted p-3 rounded space-y-3">
                                     <label className="text-xs font-semibold">Добавить маппинг</label>
                                     <div className="flex gap-2 flex-wrap">
                                         <Input
                                             placeholder="UTM (напр. rsya)"
-                                            className="h-8 text-xs font-mono w-32"
+                                            className="h-8 text-xs font-mono w-28"
                                             id="new-expense-utm"
                                         />
                                         <Input
                                             placeholder="Название в Директе"
-                                            className="h-8 text-xs w-40"
+                                            className="h-8 text-xs w-44"
                                             id="new-expense-direct"
                                         />
                                         <Input
@@ -672,15 +687,18 @@ function MetrikaSyncSection() {
                                                 const directInput = document.getElementById('new-expense-direct') as HTMLInputElement;
                                                 const displayInput = document.getElementById('new-expense-display') as HTMLInputElement;
                                                 if (utmInput.value && directInput.value) {
+                                                    const newId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                                                     setSettings({
                                                         ...settings,
-                                                        expenses_mapping: {
-                                                            ...(settings.expenses_mapping || {}),
-                                                            [utmInput.value]: {
+                                                        expenses_mapping: [
+                                                            ...(settings.expenses_mapping || []),
+                                                            {
+                                                                id: newId,
+                                                                utmName: utmInput.value,
                                                                 directName: directInput.value,
                                                                 displayName: displayInput.value || directInput.value
                                                             }
-                                                        }
+                                                        ]
                                                     });
                                                     utmInput.value = '';
                                                     directInput.value = '';

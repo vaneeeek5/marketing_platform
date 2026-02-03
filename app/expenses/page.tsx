@@ -36,6 +36,21 @@ export default function ExpensesPage() {
     const [tempPeriod, setTempPeriod] = useState<string>("quarter");
     const [showCustomRange, setShowCustomRange] = useState(false);
 
+    // Campaign filter state
+    const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
+    const [showCampaignFilter, setShowCampaignFilter] = useState(false);
+
+    // Get unique campaign names from expenses
+    const allCampaigns = Array.from(new Set(expenses.map(e => e.campaign))).sort();
+
+    // Filtered expenses based on selection (empty selection = show all)
+    const filteredExpenses = selectedCampaigns.size === 0
+        ? expenses
+        : expenses.filter(e => selectedCampaigns.has(e.campaign));
+
+    // Recalculate total based on filtered expenses
+    const filteredTotalSpend = filteredExpenses.reduce((sum, e) => sum + e.spend, 0);
+
     // Calculate dates
     const calculatePeriodDates = (periodType: string) => {
         const today = new Date();
@@ -154,6 +169,76 @@ export default function ExpensesPage() {
 
                 {/* Period Filter */}
                 <div className="flex gap-2 items-center">
+                    {/* Campaign Filter */}
+                    <div className="relative">
+                        <div
+                            className={`flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted/50 cursor-pointer bg-background ${selectedCampaigns.size > 0 ? 'border-primary' : ''}`}
+                            onClick={() => setShowCampaignFilter(!showCampaignFilter)}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                            </svg>
+                            <span className="font-medium text-sm">
+                                {selectedCampaigns.size === 0 ? 'Все кампании' :
+                                    selectedCampaigns.size === 1 ? Array.from(selectedCampaigns)[0] :
+                                        `${selectedCampaigns.size} кампаний`}
+                            </span>
+                        </div>
+
+                        {/* Campaign Filter Popup */}
+                        {showCampaignFilter && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setShowCampaignFilter(false)}
+                                />
+
+                                <div className="absolute right-0 z-50 mt-2 w-64 bg-popover text-popover-foreground rounded-lg shadow-xl border p-4 animate-in fade-in zoom-in-95 duration-200">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="font-semibold text-sm">Кампании</h3>
+                                        {selectedCampaigns.size > 0 && (
+                                            <button
+                                                className="text-sm text-primary hover:underline"
+                                                onClick={() => setSelectedCampaigns(new Set())}
+                                            >
+                                                Сбросить
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                                        {allCampaigns.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground py-2">Нет доступных кампаний</p>
+                                        ) : (
+                                            allCampaigns.map(campaign => (
+                                                <label
+                                                    key={campaign}
+                                                    className="flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted transition-colors"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedCampaigns.has(campaign)}
+                                                        onChange={(e) => {
+                                                            const newSet = new Set(selectedCampaigns);
+                                                            if (e.target.checked) {
+                                                                newSet.add(campaign);
+                                                            } else {
+                                                                newSet.delete(campaign);
+                                                            }
+                                                            setSelectedCampaigns(newSet);
+                                                        }}
+                                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    />
+                                                    <span className="text-sm">{campaign}</span>
+                                                </label>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
                     <div className="relative">
                         <div
                             className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted/50 cursor-pointer bg-background"
@@ -289,11 +374,11 @@ export default function ExpensesPage() {
                             {loading ? (
                                 <Loader2 className="h-6 w-6 animate-spin" />
                             ) : (
-                                formatCurrency(totalSpend)
+                                formatCurrency(filteredTotalSpend)
                             )}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                            Суммарный расход за период
+                            {selectedCampaigns.size > 0 ? `Сумма по выбранным кампаниям` : 'Суммарный расход за период'}
                         </p>
                     </CardContent>
                 </Card>
@@ -322,14 +407,14 @@ export default function ExpensesPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {expenses.length === 0 ? (
+                                {filteredExpenses.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
-                                            Нет данных о расходах за этот период
+                                            {selectedCampaigns.size > 0 ? 'Нет данных для выбранных кампаний' : 'Нет данных о расходах за этот период'}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    expenses.map((item) => (
+                                    filteredExpenses.map((item) => (
                                         <TableRow key={item.campaign}>
                                             <TableCell className="font-medium">{item.campaign}</TableCell>
                                             <TableCell>{item.visits}</TableCell>
