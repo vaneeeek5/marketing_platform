@@ -67,7 +67,7 @@ export async function fetchLeads(
                 body: new URLSearchParams({
                     'date1': dateFrom,
                     'date2': dateTo,
-                    'fields': 'ym:s:date,ym:s:dateTime,ym:s:clientID,ym:s:UTMCampaign,ym:s:lastTrafficSource,ym:s:goalsID,ym:s:UTMSource',
+                    'fields': 'ym:s:date,ym:s:dateTime,ym:s:clientID,ym:s:lastSignificantUTMCampaign,ym:s:lastSignificantTrafficSource,ym:s:goalsID,ym:s:lastSignificantUTMSource',
                     'source': 'visits',
                 }),
             }
@@ -161,7 +161,7 @@ function parseTsvData(
     });
 
     // Skip header row (first line)
-    // Header row example: ym:s:date  ym:s:dateTime  ym:s:clientID  ym:s:UTMCampaign  ym:s:lastTrafficSource  ym:s:goalsID ym:s:UTMSource
+    // Header row example: ym:s:date  ym:s:dateTime  ym:s:clientID  ym:s:lastSignificantUTMCampaign  ym:s:lastSignificantTrafficSource  ym:s:goalsID ym:s:lastSignificantUTMSource
     for (let i = 1; i < lines.length; i++) {
         const columns = lines[i].split('\t');
         if (columns.length >= 7) {
