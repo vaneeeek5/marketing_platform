@@ -102,6 +102,12 @@ export default function LeadsPage() {
     // Sync state
     const [syncing, setSyncing] = useState(false);
 
+    // Goals selection state
+    const [availableGoals, setAvailableGoals] = useState<{ id: number; name: string; type: string }[]>([]);
+    const [selectedGoalIds, setSelectedGoalIds] = useState<number[]>([]);
+    const [showGoalsFilter, setShowGoalsFilter] = useState(false);
+    const [loadingGoals, setLoadingGoals] = useState(false);
+
     // Date Filter State
     const [startDate, setStartDate] = useState<string>("");
     const [endDate, setEndDate] = useState<string>("");
@@ -204,9 +210,68 @@ export default function LeadsPage() {
         }
     }, [currentSheet]);
 
+    // Load available goals and settings
+    const loadGoalsAndSettings = useCallback(async () => {
+        setLoadingGoals(true);
+        try {
+            const goalsRes = await fetch("/api/metrika/goals");
+            if (goalsRes.ok) {
+                const goalsData = await goalsRes.json();
+                setAvailableGoals(goalsData.goals || []);
+            }
+
+            const settingsRes = await fetch("/api/metrika/settings");
+            if (settingsRes.ok) {
+                const settingsData = await settingsRes.json();
+                if (settingsData.goals) {
+                    const selected = Object.entries(settingsData.goals)
+                        .filter(([_, enabled]) => enabled)
+                        .map(([id, _]) => Number(id));
+                    setSelectedGoalIds(selected);
+                }
+            }
+        } catch (err) {
+            console.error("Error loading goals:", err);
+        } finally {
+            setLoadingGoals(false);
+        }
+    }, []);
+
+    const saveGoalSettings = async () => {
+        try {
+            const goalsObject: Record<string, boolean> = {};
+            availableGoals.forEach(goal => {
+                goalsObject[String(goal.id)] = selectedGoalIds.includes(goal.id);
+            });
+
+            const response = await fetch("/api/metrika/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ goals: goalsObject })
+            });
+
+            if (response.ok) {
+                successNotification("Настройки целей сохранены");
+            } else {
+                toast.error("Ошибка сохранения настроек");
+            }
+        } catch (err) {
+            toast.error("Ошибка сети");
+        }
+    };
+
+    const toggleGoal = (goalId: number) => {
+        setSelectedGoalIds(prev =>
+            prev.includes(goalId)
+                ? prev.filter(id => id !== goalId)
+                : [...prev, goalId]
+        );
+    };
+
     useEffect(() => {
         fetchLeads();
-    }, [currentSheet, fetchLeads]);
+        loadGoalsAndSettings();
+    }, [currentSheet, fetchLeads, loadGoalsAndSettings]);
 
     // Apply filters
     useEffect(() => {
@@ -386,6 +451,11 @@ export default function LeadsPage() {
 
 
     const handleSmartSync = async () => {
+        if (selectedGoalIds.length === 0) {
+            toast.error("Выберите хотя бы одну цель для загрузки лидов");
+            return;
+        }
+
         setSyncing(true);
         const toastId = toast.loading("Синхронизация с Метрикой (данные обрабатываются с задержкой, берем по вчерашний день)...");
         try {
@@ -406,6 +476,7 @@ export default function LeadsPage() {
                 body: JSON.stringify({
                     dateFrom,
                     dateTo,
+                    goalIds: selectedGoalIds,
                     manual: true,
                     // No 'action: clean' - this ensures we append/deduplicate
                 })
@@ -757,6 +828,72 @@ export default function LeadsPage() {
                             )}
                         </div>
                     </div>
+                </CardContent>
+            </Card>
+
+            {/* Goals Selection */}
+            <Card>
+                <CardHeader className="pb-4">
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <CopyCheck className="h-4 w-4" />
+                            Настройки целей Метрики
+                        </CardTitle>
+                        {selectedGoalIds.length > 0 && (
+                            <span className="text-sm text-muted-foreground">
+                                Выбрано: {selectedGoalIds.length} из {availableGoals.length}
+                            </span>
+                        )}
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {loadingGoals ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : availableGoals.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-4">
+                            Не удалось загрузить цели из Метрики
+                        </p>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {availableGoals.map((goal) => {
+                                    const isSelected = selectedGoalIds.includes(goal.id);
+                                    return (
+                                        <div
+                                            key={goal.id}
+                                            className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted rounded-md cursor-pointer border border-transparent hover:border-border transition-colors"
+                                            onClick={() => toggleGoal(goal.id)}
+                                        >
+                                            <div className={`h-5 w-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${isSelected ? "bg-primary border-primary" : "border-input"}`}>
+                                                {isSelected && <div className="h-2.5 w-3.5 bg-primary-foreground mask-check" style={{ clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)", backgroundColor: "white" }} />}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium leading-none">{goal.name}</p>
+                                                <p className="text-xs text-muted-foreground mt-1">ID: {goal.id}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="flex items-center gap-2 pt-2 border-t">
+                                <Button
+                                    size="sm"
+                                    onClick={saveGoalSettings}
+                                    disabled={loadingGoals}
+                                >
+                                    <Save className="mr-2 h-4 w-4" />
+                                    Сохранить настройки
+                                </Button>
+                                {selectedGoalIds.length === 0 && (
+                                    <p className="text-sm text-amber-600">
+                                        ⚠️ Выберите хотя бы одну цель для синхронизации
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
