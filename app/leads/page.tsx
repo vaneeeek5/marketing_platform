@@ -37,6 +37,7 @@ import {
     ArrowUpDown,
     CopyCheck,
     RefreshCw,
+    Settings,
 } from "lucide-react";
 
 const RESET_OPTION = { value: "-", label: "-" };
@@ -105,8 +106,9 @@ export default function LeadsPage() {
     // Goals selection state
     const [availableGoals, setAvailableGoals] = useState<{ id: number; name: string; type: string }[]>([]);
     const [selectedGoalIds, setSelectedGoalIds] = useState<number[]>([]);
-    const [showGoalsFilter, setShowGoalsFilter] = useState(false);
+    const [showGoalsFilter, setShowGoalsFilter] = useState(false); // Used for UI toggle now
     const [loadingGoals, setLoadingGoals] = useState(false);
+    const [showSettings, setShowSettings] = useState(false); // Collapsible settings block
 
     // Date Filter State
     const [startDate, setStartDate] = useState<string>("");
@@ -513,6 +515,16 @@ export default function LeadsPage() {
 
                 <div className="flex items-center gap-2">
                     <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowSettings(!showSettings)}
+                        className={showSettings ? "bg-muted" : ""}
+                        title="Настройки целей"
+                    >
+                        <Settings className="h-4 w-4" />
+                    </Button>
+
+                    <Button
                         variant="default"
                         size="sm"
                         onClick={handleSmartSync}
@@ -831,71 +843,71 @@ export default function LeadsPage() {
                 </CardContent>
             </Card>
 
-            {/* Goals Selection */}
-            <Card>
-                <CardHeader className="pb-4">
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-base flex items-center gap-2">
-                            <CopyCheck className="h-4 w-4" />
-                            Настройки целей Метрики
-                        </CardTitle>
-                        {selectedGoalIds.length > 0 && (
-                            <span className="text-sm text-muted-foreground">
-                                Выбрано: {selectedGoalIds.length} из {availableGoals.length}
-                            </span>
+            {/* Goals Selection (Collapsible) */}
+            {showSettings && (
+                <Card className="animate-in fade-in slide-in-from-top-2">
+                    <CardHeader className="pb-4">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <CopyCheck className="h-4 w-4" />
+                                Настройки целей Метрики
+                            </CardTitle>
+                            {selectedGoalIds.length > 0 && (
+                                <span className="text-sm text-muted-foreground">
+                                    Выбрано: {selectedGoalIds.length} из {availableGoals.length}
+                                </span>
+                            )}
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        {loadingGoals ? (
+                            <div className="flex items-center justify-center py-8">
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            </div>
+                        ) : availableGoals.length === 0 ? (
+                            <p className="text-sm text-muted-foreground py-4">
+                                Не удалось загрузить цели из Метрики. Проверьте токен.
+                            </p>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {availableGoals.map((goal) => {
+                                        const isSelected = selectedGoalIds.includes(goal.id);
+                                        return (
+                                            <div
+                                                key={goal.id}
+                                                className={`flex items-start gap-3 px-3 py-2.5 rounded-md cursor-pointer border transition-colors ${isSelected
+                                                    ? "bg-primary/5 border-primary/20"
+                                                    : "hover:bg-muted border-transparent hover:border-border"
+                                                    }`}
+                                                onClick={() => toggleGoal(goal.id)}
+                                            >
+                                                <div className={`h-5 w-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${isSelected ? "bg-primary border-primary" : "border-input"}`}>
+                                                    {isSelected && <div className="h-2.5 w-3.5 bg-primary-foreground mask-check" style={{ clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)", backgroundColor: "white" }} />}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium leading-none truncate" title={goal.name}>{goal.name}</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">ID: {goal.id}</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex items-center gap-2 pt-2 border-t justify-end">
+                                    <Button
+                                        size="sm"
+                                        onClick={saveGoalSettings}
+                                        disabled={loadingGoals}
+                                    >
+                                        <Save className="mr-2 h-4 w-4" />
+                                        Сохранить настройки
+                                    </Button>
+                                </div>
+                            </div>
                         )}
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    {loadingGoals ? (
-                        <div className="flex items-center justify-center py-8">
-                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        </div>
-                    ) : availableGoals.length === 0 ? (
-                        <p className="text-sm text-muted-foreground py-4">
-                            Не удалось загрузить цели из Метрики
-                        </p>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                {availableGoals.map((goal) => {
-                                    const isSelected = selectedGoalIds.includes(goal.id);
-                                    return (
-                                        <div
-                                            key={goal.id}
-                                            className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted rounded-md cursor-pointer border border-transparent hover:border-border transition-colors"
-                                            onClick={() => toggleGoal(goal.id)}
-                                        >
-                                            <div className={`h-5 w-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${isSelected ? "bg-primary border-primary" : "border-input"}`}>
-                                                {isSelected && <div className="h-2.5 w-3.5 bg-primary-foreground mask-check" style={{ clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)", backgroundColor: "white" }} />}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium leading-none">{goal.name}</p>
-                                                <p className="text-xs text-muted-foreground mt-1">ID: {goal.id}</p>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            <div className="flex items-center gap-2 pt-2 border-t">
-                                <Button
-                                    size="sm"
-                                    onClick={saveGoalSettings}
-                                    disabled={loadingGoals}
-                                >
-                                    <Save className="mr-2 h-4 w-4" />
-                                    Сохранить настройки
-                                </Button>
-                                {selectedGoalIds.length === 0 && (
-                                    <p className="text-sm text-amber-600">
-                                        ⚠️ Выберите хотя бы одну цель для синхронизации
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Actions & Stats */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 my-4">
