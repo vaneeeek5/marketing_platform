@@ -99,6 +99,9 @@ export default function LeadsPage() {
     const [showStatusFilter, setShowStatusFilter] = useState(false);
     const [showTargetFilter, setShowTargetFilter] = useState(false);
 
+    // Sync state
+    const [syncing, setSyncing] = useState(false);
+
     // Date Filter State
     const [startDate, setStartDate] = useState<string>("");
     const [endDate, setEndDate] = useState<string>("");
@@ -380,8 +383,7 @@ export default function LeadsPage() {
         );
     }
 
-    // Sync state
-    const [syncing, setSyncing] = useState(false);
+
 
     const handleSmartSync = async () => {
         setSyncing(true);

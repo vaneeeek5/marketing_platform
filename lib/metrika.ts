@@ -67,7 +67,7 @@ export async function fetchLeads(
                 body: new URLSearchParams({
                     'date1': dateFrom,
                     'date2': dateTo,
-                    'fields': 'ym:s:date,ym:s:dateTime,ym:s:clientID,ym:s:lastSignificantUTMCampaign,ym:s:lastSignificantTrafficSource,ym:s:goalsID,ym:s:lastSignificantUTMSource',
+                    'fields': 'ym:s:date,ym:s:dateTime,ym:s:clientID,ym:s:UTMCampaign,ym:s:lastTrafficSource,ym:s:goalsID,ym:s:UTMSource',
                     'source': 'visits',
                 }),
             }
