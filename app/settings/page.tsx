@@ -317,7 +317,13 @@ function MetrikaSyncSection() {
     };
 
     const handleClean = async () => {
-        if (!confirm(`Вы уверены, что хотите очистить данные в листе "${targetSheet}"? Это удалит все строки кроме заголовков.`)) return;
+        // Safe check for dates
+        if (!dateFrom || !dateTo) {
+            alert("Пожалуйста, выберите период для очистки.");
+            return;
+        }
+
+        if (!confirm(`Вы уверены, что хотите очистить данные за период с ${dateFrom} по ${dateTo}?`)) return;
 
         setCleaning(true);
         try {
@@ -326,7 +332,9 @@ function MetrikaSyncSection() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     action: "clean",
-                    monthSheetName: targetSheet
+                    monthSheetName: targetSheet,
+                    dateFrom,
+                    dateTo
                 })
             });
             const data = await res.json();

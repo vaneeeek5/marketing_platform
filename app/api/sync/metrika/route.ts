@@ -29,11 +29,26 @@ export async function POST(request: NextRequest) {
 
         // HANDLE CLEAR ACTION
         if (action === "clean") {
-            await clearSheetContent(targetSheet);
-            return NextResponse.json({
-                success: true,
-                message: `Sheet ${targetSheet} cleared successfully`
-            });
+            if (dateFrom && dateTo) {
+                const { deleteRowsByDateRange } = await import("@/lib/googleSheets");
+                const count = await deleteRowsByDateRange(targetSheet, dateFrom, dateTo);
+                return NextResponse.json({
+                    success: true,
+                    message: `Cleared ${count} rows from ${targetSheet} for period ${dateFrom} - ${dateTo}`
+                });
+            } else {
+                // Determine if we should allow full clear?
+                // For safety, let's keep full clear but maybe log it.
+                // Or better, only allow full clear if explicitly requested?
+                // The current UI only sends action=clean without dates effectively doing full clear.
+                // We will update UI to always send dates if manual mode is open.
+                // But providing fallback for now.
+                await clearSheetContent(targetSheet);
+                return NextResponse.json({
+                    success: true,
+                    message: `Sheet ${targetSheet} fully cleared`
+                });
+            }
         }
 
         // SYNC ACTION

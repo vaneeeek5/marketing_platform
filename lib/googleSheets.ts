@@ -599,6 +599,7 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
     const existingExpenseKeys = Array.from(keyRowMap.keys()).filter(
         k => k.startsWith("expense_item_") || k.startsWith("expense_mapping_")
     );
+
     const newExpenseKeys = new Set(
         (settings.expenses_mapping || []).map(item => `expense_item_${item.id}`)
     );
@@ -617,6 +618,138 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
         await deleteRow("MetrikaSettings", rowNum);
     }
 }
+
+/**
+ * Удалить строки за указанный период (включительно)
+ * Использует read -> filter -> write метод.
+ */
+export async function deleteRowsByDateRange(
+    sheetName: string,
+    dateFrom: string, // YYYY-MM-DD
+    dateTo: string    // YYYY-MM-DD
+): Promise<number> {
+    const sheetData = await getSheetData(sheetName);
+    const headers = sheetData[0]; // Preserve headers
+
+    if (!headers) return 0;
+
+    const fromTime = new Date(dateFrom).getTime();
+    const toTime = new Date(dateTo).getTime();
+
+    // Set toTime to end of day to be inclusive if it's just a date
+    // But usually input is YYYY-MM-DD. Let's compare dates as strings or timestamps.
+    // Metrika dates are YYYY-MM-DD.
+
+    const rowsToKeep: Record<string, any>[] = [headers];
+    let deletedCount = 0;
+
+    // Start from index 1 (skip headers)
+    for (let i = 1; i < sheetData.length; i++) {
+        const row = sheetData[i];
+        const dateStr = row[COLUMN_NAMES.DATE] as string;
+
+        if (!dateStr) {
+            rowsToKeep.push(row);
+            continue;
+        }
+
+        const rowDate = new Date(dateStr).getTime();
+
+        // Check if in range
+        if (rowDate >= fromTime && rowDate <= toTime) {
+            deletedCount++;
+        } else {
+            rowsToKeep.push(row);
+        }
+    }
+
+    if (deletedCount > 0) {
+        // Clear the sheet first
+        await clearSheetContent(sheetName);
+
+        // Write back kept rows
+        // We need to convert Record<string, any> back to array of arrays for update?
+        // No, appendRows takes SheetRow[].
+        // But clearSheetContent clears everything.
+        // We probably need a way to overwrite the sheet efficiently.
+        // Or just clear and append.
+
+        // We can use the existing appendRows but that appends.
+        // We need to write from A1.
+
+        const sheets = getGoogleSheetsClient();
+        const startRow = 1;
+
+        // Convert rowsToKeep to values array
+        // We need to ensure order matches headers.
+        // Wait, getSheetData returns Record<string, any>.
+        // We need to map it back to values based on headers.
+
+        // Helper to map object to array based on headers
+        // Assuming headers are keys.
+        // Actually getSheetData uses COLUMN_NAMES values as keys?
+        // Let's check getSheetData implementation.
+        // It maps based on header row.
+
+        const headerKeys = Object.keys(COLUMN_NAMES).map(k => COLUMN_NAMES[k as keyof typeof COLUMN_NAMES]);
+        // Actually we should just read raw values for this operation to be safe and format-agnostic.
+        // But getSheetData is what we have publicly.
+
+        // Alternative: Read raw values directly here.
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `${sheetName}!A:Z`,
+        });
+
+        const allValues = response.data.values || [];
+        if (allValues.length === 0) return 0;
+
+        const headerRow = allValues[0];
+        const dateColIndex = headerRow.findIndex(h => h === COLUMN_NAMES.DATE);
+
+        if (dateColIndex === -1) {
+            console.error("Date column not found during clean");
+            return 0;
+        }
+
+        const filteredValues = [headerRow];
+        let delCount = 0;
+
+        for (let i = 1; i < allValues.length; i++) {
+            const row = allValues[i];
+            const dateVal = row[dateColIndex]; // string YYYY-MM-DD
+
+            // Simple string comparison for YYYY-MM-DD works (ISO format)
+            if (dateVal >= dateFrom && dateVal <= dateTo) {
+                delCount++;
+            } else {
+                filteredValues.push(row);
+            }
+        }
+
+        if (delCount > 0) {
+            // Clear sheet
+            await sheets.spreadsheets.values.clear({
+                spreadsheetId: SPREADSHEET_ID,
+                range: `${sheetName}!A:Z`,
+            });
+
+            // Write back
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: SPREADSHEET_ID,
+                range: `${sheetName}!A1`,
+                valueInputOption: "USER_ENTERED",
+                requestBody: {
+                    values: filteredValues
+                }
+            });
+        }
+        return delCount;
+    }
+
+    return 0;
+}
+
 
 // Helper to create "MetrikaSettings" and monthly sheet if needed
 export async function ensureMetrikaSheetExists(targetSheetName: string) {
