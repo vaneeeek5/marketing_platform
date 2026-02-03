@@ -36,6 +36,7 @@ import {
     Calendar,
     ArrowUpDown,
     CopyCheck,
+    RefreshCw,
 } from "lucide-react";
 
 const RESET_OPTION = { value: "-", label: "-" };
@@ -379,6 +380,50 @@ export default function LeadsPage() {
         );
     }
 
+    // Sync state
+    const [syncing, setSyncing] = useState(false);
+
+    const handleSmartSync = async () => {
+        setSyncing(true);
+        const toastId = toast.loading("Синхронизация с Метрикой (поиск новых лидов)...");
+        try {
+            // Calculate dates: Today and 30 days ago
+            const end = new Date();
+            const start = new Date();
+            start.setDate(end.getDate() - 30);
+
+            const dateTo = end.toISOString().split('T')[0];
+            const dateFrom = start.toISOString().split('T')[0];
+
+            const response = await fetch("/api/sync/metrika", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    dateFrom,
+                    dateTo,
+                    manual: true,
+                    // No 'action: clean' - this ensures we append/deduplicate
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                toast.dismiss(toastId);
+                successNotification(`Синхронизация завершена. Добавлено: ${result.added}, Пропущено (дубли): ${result.skipped}`);
+                fetchLeads(); // Refresh table
+            } else {
+                toast.dismiss(toastId);
+                toast.error(`Ошибка синхронизации: ${result.message || result.error}`);
+            }
+        } catch (err) {
+            toast.dismiss(toastId);
+            toast.error("Ошибка сети при синхронизации");
+        } finally {
+            setSyncing(false);
+        }
+    };
+
     return (
         <div className="space-y-6 animate-fadeIn">
             {/* Page header */}
@@ -391,9 +436,24 @@ export default function LeadsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={fetchLeads}>
+                    <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleSmartSync}
+                        disabled={syncing || loading}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                        {syncing ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                        )}
+                        {syncing ? "Синхронизация..." : "Подгрузить лиды"}
+                    </Button>
+
+                    <Button variant="outline" size="sm" onClick={fetchLeads} disabled={loading || syncing}>
                         <Filter className="mr-2 h-4 w-4" />
-                        Обновить
+                        Обновить таблицу
                     </Button>
                 </div>
             </div>
