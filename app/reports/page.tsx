@@ -427,6 +427,7 @@ export default function ReportsPage() {
                                             <TableHead className="text-right">Целевые</TableHead>
                                             <TableHead className="text-right">% Целевых</TableHead>
                                             <TableHead className="text-right">Квал</TableHead>
+                                            <TableHead className="text-right">% Квал</TableHead>
                                             <TableHead className="text-right">Продажи</TableHead>
                                             <TableHead className="text-right">Конверсия</TableHead>
                                             {totals.spend > 0 && (
@@ -464,6 +465,19 @@ export default function ReportsPage() {
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     {formatNumber(campaign.qualifiedLeads)}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <span
+                                                        className={
+                                                            campaign.qualifiedPercent < 10
+                                                                ? "text-red-600 font-medium"
+                                                                : campaign.qualifiedPercent > 20
+                                                                    ? "text-green-600 font-medium"
+                                                                    : ""
+                                                        }
+                                                    >
+                                                        {campaign.qualifiedPercent.toFixed(1)}%
+                                                    </span>
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     {formatNumber(campaign.sales)}
@@ -517,6 +531,12 @@ export default function ReportsPage() {
                                                 {formatNumber(totals.qualifiedLeads)}
                                             </TableCell>
                                             <TableCell className="text-right">
+                                                {totals.totalLeads > 0
+                                                    ? ((totals.qualifiedLeads / totals.totalLeads) * 100).toFixed(1)
+                                                    : 0}
+                                                %
+                                            </TableCell>
+                                            <TableCell className="text-right">
                                                 {formatNumber(totals.sales)}
                                             </TableCell>
                                             <TableCell className="text-right">
@@ -544,32 +564,31 @@ export default function ReportsPage() {
                         </TabsContent>
 
                         <TabsContent value="efficiency">
-                            <div className="grid md:grid-cols-2 gap-6">
-                                {/* Best performing */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Top by Leads */}
                                 <Card>
                                     <CardHeader className="pb-3">
-                                        <CardTitle className="text-base text-green-600">
-                                            🏆 Лучшие кампании
+                                        <CardTitle className="text-base font-semibold">
+                                            Лидеры по лидам
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent>
                                         <div className="space-y-4">
                                             {[...campaignStats]
-                                                .sort((a, b) => b.targetPercent - a.targetPercent)
-                                                .slice(0, 3)
+                                                .sort((a, b) => b.totalLeads - a.totalLeads)
+                                                .slice(0, 5)
                                                 .map((campaign, index) => (
-                                                    <div
-                                                        key={campaign.name}
-                                                        className="flex items-center justify-between"
-                                                    >
-                                                        <div className="flex items-center gap-3">
-                                                            <span className="text-lg font-bold text-muted-foreground">
+                                                    <div key={campaign.name} className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                            <span className="text-sm font-bold text-muted-foreground w-4">
                                                                 {index + 1}
                                                             </span>
-                                                            <span className="font-medium">{campaign.name}</span>
+                                                            <span className="text-sm font-medium truncate" title={campaign.name}>
+                                                                {campaign.name}
+                                                            </span>
                                                         </div>
-                                                        <span className="text-green-600 font-medium">
-                                                            {campaign.targetPercent.toFixed(1)}% целевых
+                                                        <span className="text-sm font-bold">
+                                                            {campaign.totalLeads}
                                                         </span>
                                                     </div>
                                                 ))}
@@ -577,37 +596,74 @@ export default function ReportsPage() {
                                     </CardContent>
                                 </Card>
 
-                                {/* Needs improvement */}
+                                {/* Top by Target */}
                                 <Card>
                                     <CardHeader className="pb-3">
-                                        <CardTitle className="text-base text-amber-600">
-                                            ⚠️ Требуют внимания
+                                        <CardTitle className="text-base font-semibold text-green-700">
+                                            Лидеры по целевым
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent>
                                         <div className="space-y-4">
                                             {[...campaignStats]
-                                                .filter((c) => c.targetPercent < 20 && c.totalLeads >= 5)
-                                                .sort((a, b) => a.targetPercent - b.targetPercent)
-                                                .slice(0, 3)
-                                                .map((campaign) => (
-                                                    <div
-                                                        key={campaign.name}
-                                                        className="flex items-center justify-between"
-                                                    >
-                                                        <span className="font-medium">{campaign.name}</span>
-                                                        <span className="text-red-600 font-medium">
-                                                            {campaign.targetPercent.toFixed(1)}% целевых
-                                                        </span>
+                                                .sort((a, b) => b.targetLeads - a.targetLeads)
+                                                .slice(0, 5)
+                                                .map((campaign, index) => (
+                                                    <div key={campaign.name} className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                            <span className="text-sm font-bold text-muted-foreground w-4">
+                                                                {index + 1}
+                                                            </span>
+                                                            <span className="text-sm font-medium truncate" title={campaign.name}>
+                                                                {campaign.name}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-sm font-bold text-green-700">
+                                                                {campaign.targetLeads}
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                {campaign.targetPercent.toFixed(0)}%
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 ))}
-                                            {campaignStats.filter(
-                                                (c) => c.targetPercent < 20 && c.totalLeads >= 5
-                                            ).length === 0 && (
-                                                    <p className="text-muted-foreground text-sm">
-                                                        Все кампании работают эффективно
-                                                    </p>
-                                                )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                {/* Top by Qualified */}
+                                <Card>
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-base font-semibold text-blue-700">
+                                            Лидеры по квалам
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="space-y-4">
+                                            {[...campaignStats]
+                                                .sort((a, b) => b.qualifiedLeads - a.qualifiedLeads)
+                                                .slice(0, 5)
+                                                .map((campaign, index) => (
+                                                    <div key={campaign.name} className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                            <span className="text-sm font-bold text-muted-foreground w-4">
+                                                                {index + 1}
+                                                            </span>
+                                                            <span className="text-sm font-medium truncate" title={campaign.name}>
+                                                                {campaign.name}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-sm font-bold text-blue-700">
+                                                                {campaign.qualifiedLeads}
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                {campaign.qualifiedPercent.toFixed(0)}%
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                         </div>
                                     </CardContent>
                                 </Card>

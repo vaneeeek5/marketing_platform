@@ -392,6 +392,7 @@ export interface MetrikaSettings {
     goals: Record<string, boolean>;
     allowed_utm_sources: string[];
     campaign_rules: Record<string, CampaignRule>;
+    direct_client_logins?: string[];
 }
 
 /**
@@ -407,7 +408,8 @@ export async function getMetrikaSettings(): Promise<MetrikaSettings> {
         initial_sync_completed: false,
         goals: {},
         allowed_utm_sources: [],
-        campaign_rules: {}
+        campaign_rules: {},
+        direct_client_logins: []
     };
 
     data.forEach(row => {
@@ -421,6 +423,9 @@ export async function getMetrikaSettings(): Promise<MetrikaSettings> {
         if (key === "initial_sync_completed") settings.initial_sync_completed = value === "true";
         if (key === "allowed_utm_sources") {
             settings.allowed_utm_sources = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+        }
+        if (key === "direct_client_logins") {
+            settings.direct_client_logins = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
         }
 
         // Goal settings format: goal_123456
@@ -477,6 +482,7 @@ export async function updateMetrikaSettings(settings: Partial<MetrikaSettings>):
     if (settings.last_sync_result !== undefined) updates["last_sync_result"] = settings.last_sync_result;
     if (settings.initial_sync_completed !== undefined) updates["initial_sync_completed"] = String(settings.initial_sync_completed);
     if (settings.allowed_utm_sources !== undefined) updates["allowed_utm_sources"] = settings.allowed_utm_sources.join(',');
+    if (settings.direct_client_logins !== undefined) updates["direct_client_logins"] = settings.direct_client_logins.join(',');
 
     if (settings.goals) {
         Object.entries(settings.goals).forEach(([id, enabled]) => {

@@ -181,6 +181,7 @@ function MetrikaSyncSection() {
     const [showManual, setShowManual] = useState(false);
     const [targetSheet, setTargetSheet] = useState("");
     const [utmText, setUtmText] = useState("");
+    const [directLoginsText, setDirectLoginsText] = useState("");
 
     useEffect(() => {
         loadData();
@@ -197,7 +198,10 @@ function MetrikaSyncSection() {
         if (settings.allowed_utm_sources) {
             setUtmText(settings.allowed_utm_sources.join(', '));
         }
-    }, [settings.allowed_utm_sources]);
+        if (settings.direct_client_logins) {
+            setDirectLoginsText(settings.direct_client_logins.join(', '));
+        }
+    }, [settings.allowed_utm_sources, settings.direct_client_logins]);
 
     // Init targetSheet
     useEffect(() => {
@@ -396,6 +400,24 @@ function MetrikaSyncSection() {
 
                 <div className="pt-4 border-t space-y-4">
                     <h3 className="font-semibold">Дополнительные настройки фильтрации</h3>
+
+                    {/* Direct Client Logins */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Логины Яндекс.Директ (через запятую)</label>
+                        <Input
+                            className="bg-background"
+                            placeholder="my-login, agency-login"
+                            value={directLoginsText}
+                            onChange={(e) => setDirectLoginsText(e.target.value)}
+                            onBlur={() => {
+                                const logins = directLoginsText.split(',').map(s => s.trim()).filter(Boolean);
+                                setSettings({ ...settings, direct_client_logins: logins });
+                            }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Обязательно для получения расходов. Если счетчик привязан к нескольким логинам, перечислите их.
+                        </p>
+                    </div>
 
                     {/* UTM Source Filter */}
                     <div className="space-y-2">

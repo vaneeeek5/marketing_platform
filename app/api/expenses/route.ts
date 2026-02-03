@@ -18,6 +18,7 @@ export async function GET(request: Request) {
         }
 
         let legacyCampaignMap: Record<string, string> = {};
+        let directClientLogins: string[] = [];
         try {
             const settings = await getMetrikaSettings();
             if (settings.campaign_rules) {
@@ -25,12 +26,15 @@ export async function GET(request: Request) {
                     if (rule.name) legacyCampaignMap[id] = rule.name;
                 });
             }
+            if (settings.direct_client_logins) {
+                directClientLogins = settings.direct_client_logins;
+            }
         } catch (settingsError) {
             console.warn("Failed to load settings for expenses:", settingsError);
             // Continue without mapping if settings fail
         }
 
-        const data = await fetchExpenses(startDate, endDate, legacyCampaignMap);
+        const data = await fetchExpenses(startDate, endDate, legacyCampaignMap, directClientLogins);
 
         return NextResponse.json(data);
     } catch (error: any) {

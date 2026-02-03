@@ -252,7 +252,8 @@ export interface ExpenseData {
 export async function fetchExpenses(
     dateFrom: string,
     dateTo: string,
-    campaignMap: Record<string, string> = {}
+    campaignMap: Record<string, string> = {},
+    directClientLogins: string[] = []
 ): Promise<{ expenses: ExpenseData[], total: { spend: number; visits: number } }> {
     const token = process.env.YANDEX_METRIKA_TOKEN;
     const counterId = process.env.YANDEX_COUNTER_ID;
@@ -272,6 +273,10 @@ export async function fetchExpenses(
             'accuracy': 'full',
             'proposed_accuracy': 'false'
         });
+
+        if (directClientLogins.length > 0) {
+            params.append('direct_client_logins', directClientLogins.join(','));
+        }
 
         let data;
 
