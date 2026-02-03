@@ -31,11 +31,18 @@ export async function GET(request: Request) {
             // This supports multiple directNames mapping to the same displayName
             if (settings.expenses_mapping && Array.isArray(settings.expenses_mapping)) {
                 settings.expenses_mapping.forEach((item) => {
-                    // Map UTM name to Direct name for matching
-                    if (item.directName) legacyCampaignMap[item.utmName] = item.directName;
-                    // Also map Direct name to display name for final display
-                    if (item.displayName && item.directName) {
-                        legacyCampaignMap[item.directName] = item.displayName;
+                    // Determine the final target name (Display Name is priority, fallback to Direct, then UTM)
+                    const targetName = item.displayName || item.directName || item.utmName;
+
+                    if (!targetName) return;
+
+                    // Map keys to the final target name directly
+                    // This avoids chaining cycles (e.g. A->B->A) and simplifies lookup
+                    if (item.utmName) {
+                        legacyCampaignMap[item.utmName] = targetName;
+                    }
+                    if (item.directName) {
+                        legacyCampaignMap[item.directName] = targetName;
                     }
                 });
             }
