@@ -251,7 +251,8 @@ export interface ExpenseData {
  */
 export async function fetchExpenses(
     dateFrom: string,
-    dateTo: string
+    dateTo: string,
+    campaignMap: Record<string, string> = {}
 ): Promise<{ expenses: ExpenseData[], total: { spend: number; visits: number } }> {
     const token = process.env.YANDEX_METRIKA_TOKEN;
     const counterId = process.env.YANDEX_COUNTER_ID;
@@ -312,7 +313,11 @@ export async function fetchExpenses(
 
         if (data && data.data && Array.isArray(data.data)) {
             data.data.forEach((row: any) => {
-                const campaignNameRaw = row.dimensions?.[0]?.name || "Не определена";
+                let campaignName = row.dimensions?.[0]?.name || "Не определена";
+
+                if (campaignMap[campaignName]) {
+                    campaignName = campaignMap[campaignName];
+                }
 
                 let spend = 0;
                 let visits = 0;
@@ -327,7 +332,7 @@ export async function fetchExpenses(
 
                 if (spend > 0 || visits > 0) {
                     expenses.push({
-                        campaign: campaignNameRaw,
+                        campaign: campaignName,
                         spend,
                         visits,
                         cpc: visits > 0 ? spend / visits : 0

@@ -56,6 +56,7 @@ const TARGET_OPTIONS = [
     { value: "Не было в такое время лида", label: "Не было в такое время лида" },
     { value: "Недозвон", label: "Недозвон" },
     { value: "Дубль", label: "Дубль" },
+    { value: "empty", label: "Без статуса" },
 ];
 
 function getTargetStatusColor(status: string | number | null | undefined) {
@@ -86,10 +87,16 @@ export default function LeadsPage() {
     const [currentSheet, setCurrentSheet] = useState(CURRENT_MONTH_SHEET);
 
     // Filters
-    const [campaignFilter, setCampaignFilter] = useState<string>("all");
+    // Filters
+    const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]); // Multi-select
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]); // Multi-select
+    const [selectedTargets, setSelectedTargets] = useState<string[]>([]); // Multi-select
     const [searchQuery, setSearchQuery] = useState<string>("");
+
+    // UI toggles
+    const [showCampaignFilter, setShowCampaignFilter] = useState(false);
     const [showStatusFilter, setShowStatusFilter] = useState(false);
+    const [showTargetFilter, setShowTargetFilter] = useState(false);
 
     // Date Filter State
     const [startDate, setStartDate] = useState<string>("");
@@ -201,10 +208,14 @@ export default function LeadsPage() {
     useEffect(() => {
         let filtered = [...leads];
 
-        if (campaignFilter !== "all") {
-            filtered = filtered.filter((l) => l.campaign === campaignFilter);
+        // Campaign Filter
+        if (selectedCampaigns.length > 0) {
+            filtered = filtered.filter((l) =>
+                selectedCampaigns.includes(l.campaign)
+            );
         }
 
+        // Status Filter (Multi-select)
         if (selectedStatuses.length > 0) {
             filtered = filtered.filter((l) =>
                 selectedStatuses.some(status => {
@@ -216,6 +227,20 @@ export default function LeadsPage() {
             );
         }
 
+        // Target Filter (Multi-select)
+        if (selectedTargets.length > 0) {
+            filtered = filtered.filter((l) =>
+                selectedTargets.some(target => {
+                    const val = l["Целевой"];
+                    if (target === 'empty') {
+                        return !val || String(val).trim() === '';
+                    }
+                    return String(val || "").toLowerCase().trim() === target.toLowerCase().trim();
+                })
+            );
+        }
+
+        // Search Filter
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(
@@ -240,7 +265,7 @@ export default function LeadsPage() {
         }
 
         setFilteredLeads(filtered);
-    }, [leads, campaignFilter, selectedStatuses, searchQuery, startDate, endDate]);
+    }, [leads, selectedCampaigns, selectedStatuses, selectedTargets, searchQuery, startDate, endDate]);
 
     const handleEdit = (lead: Lead) => {
         setEditingRow(lead.rowIndex);
@@ -395,19 +420,124 @@ export default function LeadsPage() {
                         </div>
 
                         {/* Campaign filter */}
-                        <Select value={campaignFilter} onValueChange={setCampaignFilter}>
-                            <SelectTrigger className="w-full sm:w-[200px]">
-                                <SelectValue placeholder="Кампания" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Все кампании</SelectItem>
-                                {campaigns.map((campaign) => (
-                                    <SelectItem key={campaign} value={campaign}>
-                                        {campaign}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+
+                        {/* Campaign Filter Multi-Select */}
+                        <div className="relative">
+                            <Button
+                                variant="outline"
+                                className="w-full justify-between sm:w-[200px]"
+                                onClick={() => setShowCampaignFilter(!showCampaignFilter)}
+                            >
+                                <span className="truncate">
+                                    {selectedCampaigns.length === 0
+                                        ? "Все кампании"
+                                        : `Кампании: ${selectedCampaigns.length}`}
+                                </span>
+                                <Filter className="h-4 w-4 opacity-50" />
+                            </Button>
+
+                            {showCampaignFilter && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={() => setShowCampaignFilter(false)}
+                                    />
+                                    <div className="absolute z-50 mt-2 w-56 bg-popover text-popover-foreground rounded-lg shadow-xl border p-3 animate-in fade-in zoom-in-95 duration-200">
+                                        <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                                            <span className="font-medium text-sm">Кампании</span>
+                                            <span
+                                                className="text-xs text-primary cursor-pointer hover:underline"
+                                                onClick={() => setSelectedCampaigns([])}
+                                            >
+                                                Сбросить
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                                            {campaigns.map((campaign) => {
+                                                const isSelected = selectedCampaigns.includes(campaign);
+                                                return (
+                                                    <div
+                                                        key={campaign}
+                                                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded-md cursor-pointer"
+                                                        onClick={() => {
+                                                            if (isSelected) {
+                                                                setSelectedCampaigns(prev => prev.filter(s => s !== campaign));
+                                                            } else {
+                                                                setSelectedCampaigns(prev => [...prev, campaign]);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div className={`h-4 w-4 rounded border flex items-center justify-center ${isSelected ? "bg-primary border-primary" : "border-input"}`}>
+                                                            {isSelected && <div className="h-2.5 w-3.5 bg-primary-foreground mask-check" style={{ clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)", backgroundColor: "white" }} />}
+                                                        </div>
+                                                        <span className="text-sm">{campaign}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Target Filter Multi-Select */}
+                        <div className="relative">
+                            <Button
+                                variant="outline"
+                                className="w-full justify-between sm:w-[200px]"
+                                onClick={() => setShowTargetFilter(!showTargetFilter)}
+                            >
+                                <span className="truncate">
+                                    {selectedTargets.length === 0
+                                        ? "Все целевые"
+                                        : `Целевые: ${selectedTargets.length}`}
+                                </span>
+                                <Filter className="h-4 w-4 opacity-50" />
+                            </Button>
+
+                            {showTargetFilter && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={() => setShowTargetFilter(false)}
+                                    />
+                                    <div className="absolute z-50 mt-2 w-56 bg-popover text-popover-foreground rounded-lg shadow-xl border p-3 animate-in fade-in zoom-in-95 duration-200">
+                                        <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                                            <span className="font-medium text-sm">Целевой статус</span>
+                                            <span
+                                                className="text-xs text-primary cursor-pointer hover:underline"
+                                                onClick={() => setSelectedTargets([])}
+                                            >
+                                                Сбросить
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                                            {TARGET_OPTIONS.filter(o => o.value !== '-').map((option) => {
+                                                const isSelected = selectedTargets.includes(option.value);
+                                                return (
+                                                    <div
+                                                        key={option.value}
+                                                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded-md cursor-pointer"
+                                                        onClick={() => {
+                                                            if (isSelected) {
+                                                                setSelectedTargets(prev => prev.filter(s => s !== option.value));
+                                                            } else {
+                                                                setSelectedTargets(prev => [...prev, option.value]);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div className={`h-4 w-4 rounded border flex items-center justify-center ${isSelected ? "bg-primary border-primary" : "border-input"}`}>
+                                                            {isSelected && <div className="h-2.5 w-3.5 bg-primary-foreground mask-check" style={{ clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)", backgroundColor: "white" }} />}
+                                                        </div>
+                                                        <span className="text-sm">{option.label}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
 
                         {/* Status Filter Multi-Select */}
                         <div className="relative">
