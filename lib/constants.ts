@@ -44,5 +44,6 @@ export const NAV_ITEMS = [
     { href: "/", label: "Главная", icon: "LayoutDashboard" },
     { href: "/leads", label: "Лиды", icon: "Users" },
     { href: "/reports", label: "Отчёты", icon: "FileText" },
+    { href: "/expenses", label: "Расходы", icon: "Wallet" },
     { href: "/settings", label: "Настройки", icon: "Settings" },
 ] as const;

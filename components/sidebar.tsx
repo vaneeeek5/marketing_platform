@@ -12,6 +12,7 @@ import {
     TrendingUp,
     Menu,
     X,
+    Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -21,6 +22,7 @@ const iconMap = {
     Users,
     FileText,
     Settings,
+    Wallet,
 };
 
 export function Sidebar() {

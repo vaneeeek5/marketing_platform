@@ -237,3 +237,88 @@ export async function getGoals(): Promise<MetrikaGoal[]> {
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+export interface ExpenseData {
+    campaign: string;
+    spend: number;
+    visits: number;
+    cpc: number;
+}
+
+/**
+ * Получить расходы и визиты по кампаниям через API Статистики
+ * https://api-metrika.yandex.net/stat/v1/data
+ */
+export async function fetchExpenses(
+    dateFrom: string,
+    dateTo: string
+): Promise<{ expenses: ExpenseData[], total: { spend: number; visits: number } }> {
+    const token = process.env.YANDEX_METRIKA_TOKEN;
+    const counterId = process.env.YANDEX_COUNTER_ID;
+
+    if (!token || !counterId) {
+        throw new Error('Missing Metrika config');
+    }
+
+    try {
+        const params = new URLSearchParams({
+            'ids': counterId,
+            'metrics': 'ym:s:sumAdCosts,ym:s:visits',
+            'dimensions': 'ym:s:UTMCampaign',
+            'date1': dateFrom,
+            'date2': dateTo,
+            'limit': '1000',
+            'accuracy': 'full',
+            'proposed_accuracy': 'false'
+        });
+
+        const response = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${params}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Metrika Stat API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        const expenses: ExpenseData[] = [];
+        let totalSpend = 0;
+        let totalVisits = 0;
+
+        // data.data is array of objects { dimensions: [{name: "xyz"}], metrics: [100.5, 50] }
+        if (data.data && Array.isArray(data.data)) {
+            data.data.forEach((row: any) => {
+                const campaignNameRaw = row.dimensions?.[0]?.name || "Не определена";
+                const spend = row.metrics?.[0] || 0;
+                const visits = row.metrics?.[1] || 0;
+
+                if (spend > 0 || visits > 0) {
+                    expenses.push({
+                        campaign: campaignNameRaw,
+                        spend,
+                        visits,
+                        cpc: visits > 0 ? spend / visits : 0
+                    });
+
+                    totalSpend += spend;
+                    totalVisits += visits;
+                }
+            });
+        }
+
+        return {
+            expenses,
+            total: {
+                spend: totalSpend,
+                visits: totalVisits
+            }
+        };
+
+    } catch (err) {
+        console.error('Fetch Expenses Error:', err);
+        throw err;
+    }
+}
