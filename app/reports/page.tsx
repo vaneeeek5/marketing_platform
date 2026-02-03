@@ -540,7 +540,7 @@ export default function ReportsPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <Tabs defaultValue="all" onValueChange={async (value) => {
+                    <Tabs value={activeTab} onValueChange={async (value) => {
                         setActiveTab(value);
                         if (value === 'byWeek' || value === 'byMonth') {
                             setLoading(true);
