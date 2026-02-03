@@ -27,7 +27,7 @@ import { Lead, LeadsResponse } from "@/types";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import CampaignBadge from "@/components/CampaignBadge";
-import { formatDate, formatTime } from "@/lib/utils";
+import { formatDate, formatTime, parseDate } from "@/lib/utils";
 import {
     Loader2,
 
@@ -94,6 +94,11 @@ export default function LeadsPage() {
     const [campaignFilter, setCampaignFilter] = useState<string>("all");
     const [statusFilter, setStatusFilter] = useState<string>("all");
     const [searchQuery, setSearchQuery] = useState<string>("");
+
+    // Date Filter State
+    const [startDate, setStartDate] = useState<string>("");
+    const [endDate, setEndDate] = useState<string>("");
+    const [showDatePicker, setShowDatePicker] = useState(false);
 
     // Edit state
     const [editingRow, setEditingRow] = useState<number | null>(null);
@@ -250,8 +255,23 @@ export default function LeadsPage() {
             );
         }
 
+        // Date Filter
+        if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+
+            filtered = filtered.filter((l) => {
+                const date = parseDate(l.date);
+                if (!date) return false;
+                // Reset hours for comparison to be safe with timezones if needed, 
+                // but since we cover 00:00 to 23:59 of selected days, simple comparison works if standard objects.
+                return date >= start && date <= end;
+            });
+        }
+
         setFilteredLeads(filtered);
-    }, [leads, campaignFilter, statusFilter, searchQuery]);
+    }, [leads, campaignFilter, statusFilter, searchQuery, startDate, endDate]);
 
     const handleEdit = (lead: Lead) => {
         setEditingRow(lead.rowIndex);
@@ -448,6 +468,100 @@ export default function LeadsPage() {
                                 ))}
                             </SelectContent>
                         </Select>
+
+                        {/* Date Filter */}
+                        <div className="relative w-full sm:w-auto">
+                            <Button
+                                variant="outline"
+                                className="w-full justify-between sm:w-[240px]"
+                                onClick={() => setShowDatePicker(!showDatePicker)}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                    <span>
+                                        {startDate && endDate
+                                            ? `${formatDate(startDate)} - ${formatDate(endDate)}`
+                                            : "Выберите период"}
+                                    </span>
+                                </div>
+                                {startDate && endDate && (
+                                    <div
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setStartDate("");
+                                            setEndDate("");
+                                            setShowDatePicker(false);
+                                        }}
+                                        className="ml-2 hover:bg-muted rounded-full p-0.5"
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </div>
+                                )}
+                            </Button>
+
+                            {/* Popup */}
+                            {showDatePicker && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={() => setShowDatePicker(false)}
+                                    />
+                                    <div className="absolute z-50 mt-2 right-0 top-full bg-popover text-popover-foreground rounded-lg shadow-xl border p-4 w-[300px]">
+                                        <h3 className="font-semibold mb-3">Период дат</h3>
+
+                                        <div className="space-y-3">
+                                            <div>
+                                                <label className="block text-xs text-muted-foreground mb-1">
+                                                    С какой даты:
+                                                </label>
+                                                <Input
+                                                    type="date"
+                                                    value={startDate}
+                                                    onChange={(e) => setStartDate(e.target.value)}
+                                                    className="w-full"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs text-muted-foreground mb-1">
+                                                    По какую дату:
+                                                </label>
+                                                <Input
+                                                    type="date"
+                                                    value={endDate}
+                                                    onChange={(e) => setEndDate(e.target.value)}
+                                                    min={startDate}
+                                                    className="w-full"
+                                                />
+                                            </div>
+
+                                            <div className="flex gap-2 pt-2">
+                                                <Button
+                                                    size="sm"
+                                                    className="flex-1"
+                                                    disabled={!startDate || !endDate}
+                                                    onClick={() => setShowDatePicker(false)}
+                                                >
+                                                    Применить
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    className="flex-1"
+                                                    onClick={() => {
+                                                        setStartDate("");
+                                                        setEndDate("");
+                                                        setShowDatePicker(false);
+                                                    }}
+                                                >
+                                                    Сбросить
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </div>
                 </CardContent>
             </Card>
