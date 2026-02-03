@@ -99,3 +99,24 @@ export interface BudgetData {
     spend: number;
     period: string;
 }
+
+// Period Group for weekly/monthly reports
+export interface PeriodGroup {
+    name: string; // e.g. "22.12 - 28.12" or "Декабрь 2025"
+    startDate: string; // YYYY-MM-DD
+    endDate: string; // YYYY-MM-DD
+    campaignStats: CampaignStats[];
+    totals: {
+        totalLeads: number;
+        targetLeads: number;
+        qualifiedLeads: number;
+        sales: number;
+        spend: number;
+    };
+}
+
+// Grouped Analytics Response (by week or month)
+export interface GroupedAnalyticsResponse {
+    periods: PeriodGroup[];
+    overallKpi: KPIMetrics;
+}

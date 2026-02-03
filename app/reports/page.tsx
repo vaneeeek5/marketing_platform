@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { CampaignStats, AnalyticsResponse } from "@/types";
+import { CampaignStats, AnalyticsResponse, GroupedAnalyticsResponse, PeriodGroup } from "@/types";
 import { formatNumber, formatCurrency, formatPercent } from "@/lib/utils";
 import { FileText, Download, Loader2, BarChart3, CalendarDays } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -23,11 +23,110 @@ import { format } from 'date-fns';
 import { registerLocale } from "react-datepicker";
 registerLocale('ru', ru);
 
+// Component to display campaign stats table for a single period
+function PeriodTable({ period }: { period: PeriodGroup }) {
+    return (
+        <>
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Кампания</TableHead>
+                        <TableHead className="text-right">Всего</TableHead>
+                        <TableHead className="text-right">Целевых</TableHead>
+                        <TableHead className="text-right">% Соотн.</TableHead>
+                        <TableHead className="text-right">Квал</TableHead>
+                        <TableHead className="text-right">Соотн. %</TableHead>
+                        <TableHead className="text-right">Продажи</TableHead>
+                        <TableHead className="text-right">Расходы</TableHead>
+                        <TableHead className="text-right">Цена лида</TableHead>
+                        <TableHead className="text-right">Цена целевого</TableHead>
+                        <TableHead className="text-right">Цена квал</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {period.campaignStats.map((campaign) => {
+                        const costPerTarget =
+                            campaign.spend && campaign.targetLeads > 0
+                                ? campaign.spend / campaign.targetLeads
+                                : undefined;
+                        const costPerQualified =
+                            campaign.spend && campaign.qualifiedLeads > 0
+                                ? campaign.spend / campaign.qualifiedLeads
+                                : undefined;
+
+                        return (
+                            <TableRow key={campaign.name}>
+                                <TableCell className="font-medium">{campaign.name}</TableCell>
+                                <TableCell className="text-right">{formatNumber(campaign.totalLeads)}</TableCell>
+                                <TableCell className="text-right">{formatNumber(campaign.targetLeads)}</TableCell>
+                                <TableCell className="text-right">{formatPercent(campaign.targetPercent)}</TableCell>
+                                <TableCell className="text-right">{formatNumber(campaign.qualifiedLeads)}</TableCell>
+                                <TableCell className="text-right">{formatPercent(campaign.qualifiedPercent)}</TableCell>
+                                <TableCell className="text-right font-semibold">{formatNumber(campaign.sales)}</TableCell>
+                                <TableCell className="text-right">
+                                    {campaign.spend ? formatCurrency(campaign.spend) : "—"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                    {campaign.cpl ? formatCurrency(campaign.cpl) : "—"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                    {costPerTarget ? formatCurrency(costPerTarget) : "—"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                    {costPerQualified ? formatCurrency(costPerQualified) : "—"}
+                                </TableCell>
+                            </TableRow>
+                        );
+                    })}
+                    {/* Totals Row */}
+                    <TableRow className="font-semibold bg-muted/30">
+                        <TableCell>Итого</TableCell>
+                        <TableCell className="text-right">{formatNumber(period.totals.totalLeads)}</TableCell>
+                        <TableCell className="text-right">{formatNumber(period.totals.targetLeads)}</TableCell>
+                        <TableCell className="text-right">
+                            {period.totals.totalLeads > 0
+                                ? formatPercent((period.totals.targetLeads / period.totals.totalLeads) * 100)
+                                : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">{formatNumber(period.totals.qualifiedLeads)}</TableCell>
+                        <TableCell className="text-right">
+                            {period.totals.totalLeads > 0
+                                ? formatPercent((period.totals.qualifiedLeads / period.totals.totalLeads) * 100)
+                                : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">{formatNumber(period.totals.sales)}</TableCell>
+                        <TableCell className="text-right">
+                            {period.totals.spend > 0 ? formatCurrency(period.totals.spend) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                            {period.totals.spend > 0 && period.totals.totalLeads > 0
+                                ? formatCurrency(period.totals.spend / period.totals.totalLeads)
+                                : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                            {period.totals.spend > 0 && period.totals.targetLeads > 0
+                                ? formatCurrency(period.totals.spend / period.totals.targetLeads)
+                                : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                            {period.totals.spend > 0 && period.totals.qualifiedLeads > 0
+                                ? formatCurrency(period.totals.spend / period.totals.qualifiedLeads)
+                                : "—"}
+                        </TableCell>
+                    </TableRow>
+                </TableBody>
+            </Table>
+        </>
+    );
+}
+
 export default function ReportsPage() {
     const [data, setData] = useState<AnalyticsResponse | null>(null);
+    const [groupedData, setGroupedData] = useState<GroupedAnalyticsResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
+    const [activeTab, setActiveTab] = useState<string>("all");
 
     // Period state
     const [period, setPeriod] = useState<string>("quarter");
@@ -441,10 +540,39 @@ export default function ReportsPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <Tabs defaultValue="all">
+                    <Tabs defaultValue="all" onValueChange={async (value) => {
+                        setActiveTab(value);
+                        if (value === 'byWeek' || value === 'byMonth') {
+                            setLoading(true);
+                            try {
+                                let s: string;
+                                let e: string;
+                                if (startDate && endDate) {
+                                    s = format(startDate, 'yyyy-MM-dd');
+                                    e = format(endDate, 'yyyy-MM-dd');
+                                } else {
+                                    const { start, end } = calculatePeriodDates(period);
+                                    if (!start || !end) throw new Error("Invalid period");
+                                    s = format(start, 'yyyy-MM-dd');
+                                    e = format(end, 'yyyy-MM-dd');
+                                }
+                                const url = `/api/analytics/grouped?viewType=${value}&startDate=${s}&endDate=${e}`;
+                                const response = await fetch(url);
+                                if (!response.ok) throw new Error("Ошибка загрузки");
+                                const result = await response.json();
+                                setGroupedData(result);
+                            } catch (err) {
+                                setError(err instanceof Error ? err.message : "Ошибка");
+                            } finally {
+                                setLoading(false);
+                            }
+                        }
+                    }}>
                         <TabsList className="mb-4">
                             <TabsTrigger value="all">Все данные</TabsTrigger>
                             <TabsTrigger value="efficiency">Эффективность</TabsTrigger>
+                            <TabsTrigger value="byWeek">Неделя</TabsTrigger>
+                            <TabsTrigger value="byMonth">Месяц</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="all">
@@ -905,6 +1033,68 @@ export default function ReportsPage() {
                                         </Card>
                                     </div>
                                 </>
+                            )}
+                        </TabsContent>
+
+                        {/* Weekly View */}
+                        <TabsContent value="byWeek">
+                            {loading ? (
+                                <div className="flex items-center justify-center py-12">
+                                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                </div>
+                            ) : groupedData && groupedData.periods.length > 0 ? (
+                                <div className="space-y-6">
+                                    {groupedData.periods.map((period) => (
+                                        <Card key={period.name} className="border-2">
+                                            <CardHeader className="bg-muted/30">
+                                                <CardTitle className="text-lg flex items-center justify-between">
+                                                    <span>{period.name}</span>
+                                                    <span className="text-sm font-normal text-muted-foreground">
+                                                        {period.startDate} — {period.endDate}
+                                                    </span>
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="pt-6">
+                                                <PeriodTable period={period} />
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-12 text-muted-foreground">
+                                    Нет данных за выбранный период
+                                </div>
+                            )}
+                        </TabsContent>
+
+                        {/* Monthly View */}
+                        <TabsContent value="byMonth">
+                            {loading ? (
+                                <div className="flex items-center justify-center py-12">
+                                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                </div>
+                            ) : groupedData && groupedData.periods.length > 0 ? (
+                                <div className="space-y-6">
+                                    {groupedData.periods.map((period) => (
+                                        <Card key={period.name} className="border-2">
+                                            <CardHeader className="bg-muted/30">
+                                                <CardTitle className="text-lg flex items-center justify-between">
+                                                    <span>{period.name}</span>
+                                                    <span className="text-sm font-normal text-muted-foreground">
+                                                        {period.startDate} — {period.endDate}
+                                                    </span>
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="pt-6">
+                                                <PeriodTable period={period} />
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-12 text-muted-foreground">
+                                    Нет данных за выбранный период
+                                </div>
                             )}
                         </TabsContent>
                     </Tabs>
