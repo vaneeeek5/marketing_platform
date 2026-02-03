@@ -272,53 +272,67 @@ export async function fetchExpenses(
             'proposed_accuracy': 'false'
         });
 
-        const response = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${params}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
+        let data;
+
+        try {
+            const response = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${params}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                // If 400 (likely invalid metric sumAdCosts), try fallback
+                if (response.status === 400) {
+                    console.warn("Metrika 400 Error (likely missing ad costs). Retrying with visits only.");
+                    params.set('metrics', 'ym:s:visits');
+                    const responseFallback = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${params}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (!responseFallback.ok) {
+                        throw new Error(`Metrika Fallback Error: ${responseFallback.status}`);
+                    }
+                    data = await responseFallback.json();
+                } else {
+                    throw new Error(`Metrika Stat API error: ${response.status}`);
+                }
+            } else {
+                data = await response.json();
             }
-        });
 
-        if (!response.ok) {
-            throw new Error(`Metrika Stat API error: ${response.status}`);
+        } catch (fetchErr) {
+            throw fetchErr;
         }
-
-        const data = await response.json();
 
         const expenses: ExpenseData[] = [];
         let totalSpend = 0;
         let totalVisits = 0;
 
-        // data.data is array of objects { dimensions: [{name: "xyz"}], metrics: [100.5, 50] }
-        if (data.data && Array.isArray(data.data)) {
-            data.data.forEach((row: any) => {
-                const campaignNameRaw = row.dimensions?.[0]?.name || "Не определена";
-                const spend = row.metrics?.[0] || 0;
-                const visits = row.metrics?.[1] || 0;
-
-                if (spend > 0 || visits > 0) {
-                    expenses.push({
-                        campaign: campaignNameRaw,
-                        spend,
-                        visits,
-                        cpc: visits > 0 ? spend / visits : 0
-                    });
-
-                    totalSpend += spend;
-                    totalVisits += visits;
-                }
+        if (spend > 0 || visits > 0) {
+            expenses.push({
+                campaign: campaignNameRaw,
+                spend,
+                visits,
+                cpc: visits > 0 ? spend / visits : 0
             });
-        }
 
-        return {
-            expenses,
-            total: {
-                spend: totalSpend,
-                visits: totalVisits
-            }
-        };
+            totalSpend += spend;
+            totalVisits += visits;
+        }
+    });
+}
+
+return {
+    expenses,
+    total: {
+        spend: totalSpend,
+        visits: totalVisits
+    }
+};
 
     } catch (err) {
-        console.error('Fetch Expenses Error:', err);
-        throw err;
-    }
+    console.error('Fetch Expenses Error:', err);
+    throw err;
+}
 }
