@@ -387,12 +387,15 @@ export default function LeadsPage() {
 
     const handleSmartSync = async () => {
         setSyncing(true);
-        const toastId = toast.loading("Синхронизация с Метрикой (поиск новых лидов)...");
+        const toastId = toast.loading("Синхронизация с Метрикой (данные обрабатываются с задержкой, берем по вчерашний день)...");
         try {
-            // Calculate dates: Today and 30 days ago
+            // Calculate dates: Yesterday and 30 days ago
+            // Metrika Logs API requires date2 < today
             const end = new Date();
+            end.setDate(end.getDate() - 1); // Yesterday
+
             const start = new Date();
-            start.setDate(end.getDate() - 30);
+            start.setDate(end.getDate() - 30); // 30 days before that
 
             const dateTo = end.toISOString().split('T')[0];
             const dateFrom = start.toISOString().split('T')[0];
