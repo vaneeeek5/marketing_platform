@@ -874,3 +874,140 @@ export async function clearSheetContent(sheetName: string): Promise<void> {
         throw error;
     }
 }
+
+// Helper to parse date from sheet (handles YYYY-MM-DD and DD.MM.YYYY)
+function parseSheetDate(dateStr: string): number | null {
+    if (!dateStr) return null;
+    const str = String(dateStr).trim();
+
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+        return new Date(str).getTime();
+    }
+    // DD.MM.YYYY
+    if (/^\d{2}\.\d{2}\.\d{4}/.test(str)) {
+        const [day, month, year] = str.split('.');
+        return new Date(`${year}-${month}-${day}`).getTime();
+    }
+    // Fallback
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d.getTime();
+}
+
+/**
+ * БЕЗОПАСНОЕ удаление строк за указанный период (включительно)
+ * Использует точечное удаление (DeleteDimension) без полной перезаписи таблицы
+ */
+export async function deleteRowsByDateRangeSafe(
+    sheetName: string,
+    dateFrom: string, // YYYY-MM-DD
+    dateTo: string    // YYYY-MM-DD
+): Promise<number> {
+    const sheets = getGoogleSheetsClient();
+
+    // 1. Получаем SheetId (нужен для удаления строк)
+    const sheetInfo = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const sheetProps = sheetInfo.data.sheets?.find(s => s.properties?.title === sheetName)?.properties;
+
+    if (!sheetProps?.sheetId) {
+        console.error(`Sheet "${sheetName}" not found`);
+        return 0;
+    }
+    const sheetId = sheetProps.sheetId;
+
+    // 2. Считываем данные
+    const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${sheetName}!A:Z`,
+        valueRenderOption: "FORMATTED_VALUE",
+    });
+
+    const allValues = response.data.values || [];
+    if (allValues.length === 0) return 0;
+
+    // 3. Ищем колонку с датой
+    const headerRow = allValues[0];
+    const dateColIndex = headerRow.findIndex(h => {
+        const hStr = String(h).toLowerCase().trim();
+        return ["дата", "date"].includes(hStr);
+    });
+
+    if (dateColIndex === -1) {
+        console.error("Date column not found during clean");
+        return 0;
+    }
+
+    // 4. Собираем индексы для удаления
+    const rowsToDelete: number[] = [];
+
+    // normalize helper (YYYY-MM-DD comparison)
+    const toIso = (ts: number) => {
+        const d = new Date(ts);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    for (let i = 1; i < allValues.length; i++) {
+        const row = allValues[i];
+        const dateStr = row[dateColIndex];
+        const ts = parseSheetDate(dateStr);
+
+        if (ts !== null) {
+            const rowIso = toIso(ts);
+            if (rowIso >= dateFrom && rowIso <= dateTo) {
+                rowsToDelete.push(i);
+            }
+        }
+    }
+
+    if (rowsToDelete.length === 0) return 0;
+
+    // 5. Группируем в диапазоны и удаляем (от большего индекса к меньшему)
+    rowsToDelete.sort((a, b) => b - a);
+
+    const requests: sheets_v4.Schema$Request[] = [];
+    let rangeEnd = rowsToDelete[0];
+    let rangeStart = rowsToDelete[0];
+
+    for (let i = 1; i < rowsToDelete.length; i++) {
+        if (rowsToDelete[i] === rangeStart - 1) {
+            rangeStart = rowsToDelete[i];
+        } else {
+            requests.push({
+                deleteDimension: {
+                    range: {
+                        sheetId: sheetId,
+                        dimension: "ROWS",
+                        startIndex: rangeStart,
+                        endIndex: rangeEnd + 1
+                    }
+                }
+            });
+            rangeEnd = rowsToDelete[i];
+            rangeStart = rowsToDelete[i];
+        }
+    }
+    requests.push({
+        deleteDimension: {
+            range: {
+                sheetId: sheetId,
+                dimension: "ROWS",
+                startIndex: rangeStart,
+                endIndex: rangeEnd + 1
+            }
+        }
+    });
+
+    // 6. Выполняем удаление
+    await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { requests }
+    });
+
+    // Invalidate cache
+    delete cache[sheetName];
+
+    return rowsToDelete.length;
+}

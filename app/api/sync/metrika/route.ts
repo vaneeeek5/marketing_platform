@@ -30,11 +30,11 @@ export async function POST(request: NextRequest) {
         // HANDLE CLEAR ACTION
         if (action === "clean") {
             if (dateFrom && dateTo) {
-                const { deleteRowsByDateRange } = await import("@/lib/googleSheets");
-                const count = await deleteRowsByDateRange(targetSheet, dateFrom, dateTo);
+                const { deleteRowsByDateRangeSafe } = await import("@/lib/googleSheets");
+                const count = await deleteRowsByDateRangeSafe(targetSheet, dateFrom, dateTo);
                 return NextResponse.json({
                     success: true,
-                    message: `Cleared ${count} rows from ${targetSheet} for period ${dateFrom} - ${dateTo}`
+                    message: `Удалено ${count} строк из ${targetSheet} за период ${dateFrom} - ${dateTo}`
                 });
             } else {
                 // Determine if we should allow full clear?
