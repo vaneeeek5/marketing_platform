@@ -13,6 +13,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import {
     Users,
     Target,
@@ -49,24 +50,75 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [currentSheet] = useState("Лиды");
-    const [period, setPeriod] = useState<string>("month");
+
+    // Core state
+    const [period, setPeriod] = useState<string>("quarter"); // Default to quarter
     const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
     const [startDate, endDate] = dateRange;
 
-    // fetchSheets removed as we use single sheet
+    // UI state for popup
+    const [showPeriodPopup, setShowPeriodPopup] = useState(false);
+    const [tempPeriod, setTempPeriod] = useState<string>("quarter");
+    const [showCustomRange, setShowCustomRange] = useState(false);
 
-    const fetchData = useCallback(async () => {
-        // currentSheet always exists
+    // Calculate dates for relative periods
+    const calculatePeriodDates = (periodType: string) => {
+        const today = new Date();
+        const end = new Date(today);
+        const start = new Date(today);
+
+        switch (periodType) {
+            case "week":
+                start.setDate(today.getDate() - 7);
+                break;
+            case "month":
+                start.setDate(today.getDate() - 30);
+                break;
+            case "quarter":
+                start.setDate(today.getDate() - 90);
+                break;
+            case "year":
+                start.setDate(today.getDate() - 365);
+                break;
+            default:
+                return { start: null, end: null };
+        }
+        return { start, end };
+    };
+
+    const fetchData = useCallback(async (selectedPeriod: string, customStart?: Date | null, customEnd?: Date | null) => {
         setLoading(true);
         try {
-            let url = `/api/analytics/summary?sheet=${encodeURIComponent(currentSheet)}&period=${period}`;
-            if (period === "custom" && startDate && endDate) {
-                // Pass local YYYY-MM-DD strings
-                const s = format(startDate, 'yyyy-MM-dd');
-                const e = format(endDate, 'yyyy-MM-dd');
-                url += `&startDate=${s}&endDate=${e}`;
+            let url = `/api/analytics/summary?sheet=${encodeURIComponent(currentSheet)}`;
+
+            let s: string | undefined;
+            let e: string | undefined;
+
+            if (selectedPeriod === "custom" && customStart && customEnd) {
+                // Custom range
+                s = format(customStart, 'yyyy-MM-dd');
+                e = format(customEnd, 'yyyy-MM-dd');
+                // Use 'custom' period which expects dates
+                url += `&period=custom&startDate=${s}&endDate=${e}`;
+            } else {
+                // Relative period (week, month, etc) -> Calculate dates and send as custom
+                // This ensures we get "Last X Days" logic from the backend if it supports custom dates
+                // OR we rely on backend logic if we just send period=week. 
+                // User REQUESTED "Last 7 days from TODAY", backend "week" might be "current week (Mon-Sun)".
+                // To force "Last 7 days", we MUST use period=custom and send calculated dates.
+
+                const { start, end } = calculatePeriodDates(selectedPeriod);
+                if (start && end) {
+                    s = format(start, 'yyyy-MM-dd');
+                    e = format(end, 'yyyy-MM-dd');
+                    url += `&period=custom&startDate=${s}&endDate=${e}`;
+                } else {
+                    // Fallback if something weird
+                    url += `&period=${selectedPeriod}`;
+                }
             }
 
+            console.log("Fetching dashboard data:", url);
             const response = await fetch(url);
             if (!response.ok) throw new Error("Ошибка загрузки данных");
             const result = await response.json();
@@ -75,25 +127,49 @@ export default function DashboardPage() {
         } catch (err) {
             const message = err instanceof Error ? err.message : "Неизвестная ошибка";
             setError(message);
-            toast.error("Не удалось загрузить данные", {
-                description: message,
-            });
+            toast.error("Не удалось загрузить данные");
         } finally {
             setLoading(false);
         }
-    }, [currentSheet, period]);
+    }, [currentSheet]); // Removed 'period' dependency to avoid loop, we pass it in
 
+    // Initial load
     useEffect(() => {
-        fetchData();
+        fetchData("quarter");
     }, [fetchData]);
 
+    const handleApplyPeriod = () => {
+        if (tempPeriod === 'custom') {
+            setShowPeriodPopup(false);
+            setShowCustomRange(true);
+        } else {
+            setPeriod(tempPeriod);
+            // Clear custom dates if switching to preset
+            setDateRange([null, null]);
+            fetchData(tempPeriod);
+            setShowPeriodPopup(false);
+            setShowCustomRange(false);
+        }
+    };
+
+    const handleApplyCustomRange = () => {
+        if (startDate && endDate) {
+            setPeriod('custom');
+            fetchData('custom', startDate, endDate);
+            setShowCustomRange(false);
+        }
+    };
+
     const getPeriodLabel = () => {
+        if (period === 'custom' && startDate && endDate) {
+            return `${format(startDate, 'dd.MM.yyyy')} - ${format(endDate, 'dd.MM.yyyy')}`;
+        }
         switch (period) {
-            case "week": return "текущую неделю";
-            case "month": return "текущий месяц";
-            case "quarter": return "текущий квартал";
-            case "year": return "текущий год";
-            default: return "текущий период";
+            case "week": return "последние 7 дней";
+            case "month": return "последние 30 дней";
+            case "quarter": return "последние 90 дней";
+            case "year": return "последние 365 дней";
+            default: return "выбранный период";
         }
     };
 
@@ -130,44 +206,108 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Filters */}
-                <div className="flex flex-wrap gap-3">
-                    {/* Sheet selector removed */}
-
-                    {/* Period selector */}
-                    <div className="flex items-center gap-2">
-                        {period === "custom" && (
-                            <div className="relative z-50">
-                                <DatePicker
-                                    selectsRange={true}
-                                    startDate={startDate}
-                                    endDate={endDate}
-                                    onChange={(update: [Date | null, Date | null]) => {
-                                        setDateRange(update);
-                                    }}
-                                    isClearable={true}
-                                    locale="ru"
-                                    dateFormat="dd.MM.yyyy"
-                                    placeholderText="Выберите даты"
-                                    className="h-10 w-[220px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                />
-                            </div>
-                        )}
-
-                        <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                        <Select value={period} onValueChange={(v) => setPeriod(v)}>
-                            <SelectTrigger className="w-[140px]">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {PERIOD_OPTIONS.map((opt) => (
-                                    <SelectItem key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                <div className="relative">
+                    <div
+                        className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted/50 cursor-pointer bg-background"
+                        onClick={() => setShowPeriodPopup(!showPeriodPopup)}
+                    >
+                        <CalendarDays className="h-5 w-5 text-muted-foreground" />
+                        <span className="font-medium text-sm">
+                            {period === 'custom' ? getPeriodLabel() : PERIOD_OPTIONS.find(p => p.value === period)?.label || 'Период'}
+                        </span>
                     </div>
+
+                    {/* Period Popup */}
+                    {showPeriodPopup && (
+                        <>
+                            <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setShowPeriodPopup(false)}
+                            />
+
+                            <div className="absolute right-0 z-50 mt-2 w-72 bg-popover text-popover-foreground rounded-lg shadow-xl border p-4 animate-in fade-in zoom-in-95 duration-200">
+                                <h3 className="font-semibold mb-3 text-sm">Выберите период</h3>
+
+                                <div className="space-y-1">
+                                    {[
+                                        { value: 'week', label: 'Неделя', desc: 'Последние 7 дней' },
+                                        { value: 'month', label: 'Месяц', desc: 'Последние 30 дней' },
+                                        { value: 'quarter', label: 'Квартал', desc: 'Последние 90 дней' },
+                                        { value: 'year', label: 'Год', desc: 'Последние 365 дней' },
+                                        { value: 'custom', label: '📅 Свой диапазон', desc: 'Выбрать даты вручную' }
+                                    ].map(option => (
+                                        <div
+                                            key={option.value}
+                                            className={`flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors ${tempPeriod === option.value ? 'bg-primary/10' : 'hover:bg-muted'
+                                                }`}
+                                            onClick={() => setTempPeriod(option.value)}
+                                        >
+                                            <div className={`mt-0.5 h-4 w-4 rounded-full border border-primary flex items-center justify-center ${tempPeriod === option.value ? 'bg-primary' : ''
+                                                }`}>
+                                                {tempPeriod === option.value && <div className="h-2 w-2 rounded-full bg-primary-foreground" />}
+                                            </div>
+                                            <div>
+                                                <div className="font-medium text-sm">{option.label}</div>
+                                                <div className="text-xs text-muted-foreground">{option.desc}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <Button
+                                    onClick={handleApplyPeriod}
+                                    className="w-full mt-4"
+                                    size="sm"
+                                >
+                                    Применить
+                                </Button>
+                            </div>
+                        </>
+                    )}
                 </div>
+
+                {/* Custom Range Modal */}
+                {showCustomRange && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
+                        <div className="bg-background rounded-lg shadow-lg w-full max-w-sm p-6 border">
+                            <h3 className="text-lg font-semibold mb-4">Выберите диапазон дат</h3>
+
+                            <div className="space-y-4">
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-medium">Период:</label>
+                                    <DatePicker
+                                        selected={startDate}
+                                        onChange={(update: [Date | null, Date | null]) => {
+                                            setDateRange(update);
+                                        }}
+                                        startDate={startDate}
+                                        endDate={endDate}
+                                        selectsRange
+                                        inline
+                                        locale="ru"
+                                    />
+                                </div>
+
+                                <div className="flex gap-3 pt-2">
+                                    <Button
+                                        onClick={handleApplyCustomRange}
+                                        disabled={!startDate || !endDate}
+                                        className="flex-1"
+                                    >
+                                        Применить
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setShowCustomRange(false)}
+                                        className="flex-1"
+                                    >
+                                        Отмена
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Loading overlay */}
