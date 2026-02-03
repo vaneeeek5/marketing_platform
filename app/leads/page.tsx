@@ -61,6 +61,25 @@ const TARGET_OPTIONS = [
     { value: "Дубль", label: "Дубль" },
 ];
 
+function getTargetStatusColor(status: string | number | null | undefined) {
+    const s = String(status || "").toLowerCase().trim();
+    if (s === 'целевой') return { backgroundColor: '#dcfce7', color: '#166534' }; // Green
+    if (s === 'спам') return { backgroundColor: '#fee2e2', color: '#991b1b' }; // Red
+    if (s === 'дубль') return { backgroundColor: '#fef3c7', color: '#854d0e' }; // Yellow
+    if (s === 'недозвон') return { backgroundColor: '#dbeafe', color: '#1e40af' }; // Blue
+    if (s.includes('не было')) return { backgroundColor: '#fecaca', color: '#991b1b' }; // Bright Red
+    return { backgroundColor: '#f3f4f6', color: '#6b7280' }; // Gray default
+}
+
+function getQualificationColor(status: string | number | null | undefined) {
+    const s = String(status || "").toLowerCase().trim();
+    if (s.includes('квал')) return { backgroundColor: '#dcfce7', color: '#166534' }; // Green
+    if (s === 'дубль') return { backgroundColor: '#fee2e2', color: '#991b1b' }; // Red
+    if (s === 'обычный') return { backgroundColor: '#dbeafe', color: '#1e40af' }; // Blue
+    if (s === 'закрыто') return { backgroundColor: '#e5e7eb', color: '#374151' }; // Gray-Dark
+    return { backgroundColor: '#f3f4f6', color: '#6b7280' }; // Gray default
+}
+
 export default function LeadsPage() {
     console.log("Leads page mounting...");
     // ... state ...
@@ -509,22 +528,7 @@ export default function LeadsPage() {
                                                             {lead["Целевой"] ? (
                                                                 <span
                                                                     className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium whitespace-normal break-words leading-tight"
-                                                                    style={{
-                                                                        backgroundColor:
-                                                                            lead["Целевой"] === 'Целевой' ? '#dcfce7' :
-                                                                                lead["Целевой"] === 'СПАМ' ? '#fee2e2' :
-                                                                                    lead["Целевой"] === 'Дубль' ? '#fef3c7' :
-                                                                                        lead["Целевой"] === 'Недозвон' ? '#e0e7ff' :
-                                                                                            lead["Целевой"] === 'Не было в такое время лида' ? '#fecaca' :
-                                                                                                '#f3f4f6',
-                                                                        color:
-                                                                            lead["Целевой"] === 'Целевой' ? '#166534' :
-                                                                                lead["Целевой"] === 'СПАМ' ? '#991b1b' :
-                                                                                    lead["Целевой"] === 'Дубль' ? '#854d0e' :
-                                                                                        lead["Целевой"] === 'Недозвон' ? '#3730a3' :
-                                                                                            lead["Целевой"] === 'Не было в такое время лида' ? '#991b1b' :
-                                                                                                '#374151'
-                                                                    }}
+                                                                    style={getTargetStatusColor(lead["Целевой"])}
                                                                 >
                                                                     {lead["Целевой"]}
                                                                 </span>
@@ -541,22 +545,7 @@ export default function LeadsPage() {
                                                                 ) : (
                                                                     <span
                                                                         className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
-                                                                        style={{
-                                                                            backgroundColor:
-                                                                                opt.value === 'Целевой' ? '#dcfce7' :
-                                                                                    opt.value === 'СПАМ' ? '#fee2e2' :
-                                                                                        opt.value === 'Дубль' ? '#fef3c7' :
-                                                                                            opt.value === 'Недозвон' ? '#dbeafe' :
-                                                                                                opt.value === 'Не было в такое время лида' ? '#fecaca' :
-                                                                                                    '#f3f4f6',
-                                                                            color:
-                                                                                opt.value === 'Целевой' ? '#166534' :
-                                                                                    opt.value === 'СПАМ' ? '#991b1b' :
-                                                                                        opt.value === 'Дубль' ? '#854d0e' :
-                                                                                            opt.value === 'Недозвон' ? '#1e40af' :
-                                                                                                opt.value === 'Не было в такое время лида' ? '#991b1b' :
-                                                                                                    '#6b7280'
-                                                                        }}
+                                                                        style={getTargetStatusColor(opt.value)}
                                                                     >
                                                                         {opt.label}
                                                                     </span>
@@ -572,12 +561,32 @@ export default function LeadsPage() {
                                                     onValueChange={(v) => handleInlineUpdate(lead.rowIndex, 'qualification', v)}
                                                 >
                                                     <SelectTrigger className="h-8 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0">
-                                                        <SelectValue placeholder="-" />
+                                                        <SelectValue>
+                                                            {lead.qualification ? (
+                                                                <span
+                                                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap"
+                                                                    style={getQualificationColor(lead.qualification)}
+                                                                >
+                                                                    {lead.qualification}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-muted-foreground">-</span>
+                                                            )}
+                                                        </SelectValue>
                                                     </SelectTrigger>
                                                     <SelectContent>
                                                         {STATUS_OPTIONS.map((status) => (
                                                             <SelectItem key={status.value} value={status.value}>
-                                                                {status.value === '-' ? "-" : <StatusBadge status={status.value} />}
+                                                                {status.value === '-' ? (
+                                                                    <span className="text-muted-foreground">-</span>
+                                                                ) : (
+                                                                    <span
+                                                                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                                                                        style={getQualificationColor(status.value)}
+                                                                    >
+                                                                        {status.label}
+                                                                    </span>
+                                                                )}
                                                             </SelectItem>
                                                         ))}
                                                     </SelectContent>
