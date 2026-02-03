@@ -197,12 +197,12 @@ function parseTsvData(
             }
 
             // Parse goalsID field which is like "[111,222]" or "[]"
-            const visitedGoals = [...new Set(
+            const visitedGoals = Array.from(new Set(
                 goalsStr.replace(/[\[\]]/g, '')
                     .split(',')
                     .map(s => parseInt(s.trim(), 10))
                     .filter(n => !isNaN(n))
-            )];
+            ));
 
             // Create lead for each reached goal that matches our filter
             visitedGoals.forEach(goalId => {

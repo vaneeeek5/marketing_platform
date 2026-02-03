@@ -10,7 +10,7 @@ export interface Lead {
     comment: string;
     sales: string;
     // Дополнительные поля для флагов кампаний
-    [key: string]: string | number;
+    [key: string]: string | number | undefined;
 }
 
 // Данные для обновления лида
