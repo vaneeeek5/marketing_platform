@@ -1418,7 +1418,7 @@ export default function ReportsPage() {
                                 </div>
                             ) : (
                                 <div className="text-center py-12 text-muted-foreground">
-                                    Нет данных за выбранный период
+                                    Нет данных: выберите период, кампании и нажмите кнопку обновить
                                 </div>
                             )}
                         </TabsContent>
@@ -1468,7 +1468,7 @@ export default function ReportsPage() {
                                 </div>
                             ) : (
                                 <div className="text-center py-12 text-muted-foreground">
-                                    Нет данных за выбранный период
+                                    Нет данных: выберите период, кампании и нажмите кнопку обновить
                                 </div>
                             )}
                         </TabsContent>
