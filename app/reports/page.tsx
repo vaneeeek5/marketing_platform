@@ -13,13 +13,27 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { CampaignStats, AnalyticsResponse, GroupedAnalyticsResponse, PeriodGroup } from "@/types";
-import { formatNumber, formatCurrency, formatPercent } from "@/lib/utils";
-import { FileText, Download, Loader2, BarChart3, CalendarDays, Filter } from "lucide-react";
+import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { FileText, Download, Loader2, BarChart3, CalendarDays, Filter, RefreshCcw } from "lucide-react";
 import * as XLSX from "xlsx";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ru } from 'date-fns/locale';
-import { format } from 'date-fns';
+import {
+    format,
+    subDays,
+    startOfMonth,
+    endOfMonth,
+    startOfWeek,
+    endOfWeek,
+    subMonths,
+    subWeeks,
+    isAfter,
+    startOfQuarter,
+    endOfQuarter,
+    startOfYear,
+    endOfYear
+} from 'date-fns';
 import { registerLocale } from "react-datepicker";
 registerLocale('ru', ru);
 
@@ -141,6 +155,13 @@ export default function ReportsPage() {
     const [tempPeriod, setTempPeriod] = useState<string>("quarter");
     const [showCustomRange, setShowCustomRange] = useState(false);
 
+    // Sequential Loading State (Split)
+    const [loadedWeeks, setLoadedWeeks] = useState<PeriodGroup[]>([]);
+    const [loadedMonths, setLoadedMonths] = useState<PeriodGroup[]>([]);
+    const [earliestWeekDate, setEarliestWeekDate] = useState<Date | null>(null);
+    const [earliestMonthDate, setEarliestMonthDate] = useState<Date | null>(null);
+    const [sequentialLoading, setSequentialLoading] = useState(false);
+
     // Calculate all unique campaigns from dictionary AND data
     const allCampaigns = useMemo(() => {
         const set = new Set<string>();
@@ -151,11 +172,14 @@ export default function ReportsPage() {
         if (data?.campaignStats) {
             data.campaignStats.forEach(c => set.add(c.name));
         }
-        if (groupedData?.periods) {
-            groupedData.periods.forEach(p => p.campaignStats.forEach(c => set.add(c.name)));
+        if (loadedWeeks) {
+            loadedWeeks.forEach(p => p.campaignStats.forEach(c => set.add(c.name)));
+        }
+        if (loadedMonths) {
+            loadedMonths.forEach(p => p.campaignStats.forEach(c => set.add(c.name)));
         }
         return Array.from(set).sort();
-    }, [data, groupedData]);
+    }, [data, loadedWeeks, loadedMonths, campaignDictionary]);
 
     // Calculate dates
     const calculatePeriodDates = (periodType: string) => {
@@ -286,8 +310,17 @@ export default function ReportsPage() {
             fetchData(period);
         }
         if (activeTab === 'byWeek' || activeTab === 'byMonth') {
-            // Re-fetch grouped data if on a grouped tab
-            fetchGroupedData(activeTab);
+            // Reset sequential view state
+            if (activeTab === 'byWeek') {
+                setLoadedWeeks([]);
+                setEarliestWeekDate(null);
+            }
+            if (activeTab === 'byMonth') {
+                setLoadedMonths([]);
+                setEarliestMonthDate(null);
+            }
+            // Trigger load (handleTabChange will proceed because length is 0)
+            handleTabChange(activeTab);
         }
     };
 
@@ -304,31 +337,152 @@ export default function ReportsPage() {
         }
     };
 
-    const fetchGroupedData = useCallback(async (viewType: string) => {
-        setLoading(true);
+    const fetchSequentialChunk = async (start: Date, end: Date, isInitial: boolean, viewType: string) => {
+        setSequentialLoading(true);
         try {
-            let s: string;
-            let e: string;
-            if (startDate && endDate) {
-                s = format(startDate, 'yyyy-MM-dd');
-                e = format(endDate, 'yyyy-MM-dd');
-            } else {
-                const { start, end } = calculatePeriodDates(period);
-                if (!start || !end) throw new Error("Invalid period");
-                s = format(start, 'yyyy-MM-dd');
-                e = format(end, 'yyyy-MM-dd');
-            }
+            const s = format(start, 'yyyy-MM-dd');
+            const e = format(end, 'yyyy-MM-dd');
+
+            console.log(`Loading sequential chunk (${viewType}): ${s} to ${e}`);
+
             const url = `/api/analytics/grouped?viewType=${viewType}&startDate=${s}&endDate=${e}`;
             const response = await fetch(url);
             if (!response.ok) throw new Error("Ошибка загрузки");
-            const result = await response.json();
-            setGroupedData(result);
+            const result: GroupedAnalyticsResponse = await response.json();
+
+            // Fetch expenses to merge with campaign stats
+            try {
+                const expensesRes = await fetch(`/api/expenses?startDate=${s}&endDate=${e}`);
+                if (expensesRes.ok) {
+                    const expensesData = await expensesRes.json();
+
+                    // Update campaign dictionary
+                    if (expensesData.campaignDictionary) {
+                        setCampaignDictionary(prev => {
+                            const newSet = new Set(prev);
+                            expensesData.campaignDictionary.forEach((c: string) => newSet.add(c));
+                            return Array.from(newSet).sort();
+                        });
+                    }
+
+                    if (expensesData.expenses && result.periods) {
+                        // Create a map of expenses by campaign name
+                        const expenseMap = new Map<string, { spend: number; visits: number }>();
+                        expensesData.expenses.forEach((exp: { campaign: string; spend: number; visits: number }) => {
+                            expenseMap.set(exp.campaign.toLowerCase().trim(), { spend: exp.spend, visits: exp.visits });
+                        });
+
+                        // Merge expenses into periods
+                        result.periods = result.periods.map(period => {
+                            const updatedStats = period.campaignStats.map(cs => {
+                                const expData = expenseMap.get(cs.name.toLowerCase().trim());
+                                if (expData) {
+                                    cs.spend = expData.spend;
+                                    cs.cpl = cs.totalLeads > 0 ? expData.spend / cs.totalLeads : 0;
+                                }
+                                return cs;
+                            });
+
+                            // Recalculate Period Totals with new spend data
+                            const newTotals = {
+                                ...period.totals,
+                                spend: updatedStats.reduce((sum, c) => sum + (c.spend || 0), 0)
+                            };
+
+                            return {
+                                ...period,
+                                campaignStats: updatedStats,
+                                totals: newTotals
+                            };
+                        });
+                    }
+                }
+            } catch (expErr) {
+                console.warn("Failed to fetch expenses for sequential chunk:", expErr);
+            }
+
+            // Update State based on ViewType
+            if (viewType === 'byWeek') {
+                setLoadedWeeks(prev => {
+                    const newPeriods = result.periods || [];
+                    return isInitial ? newPeriods : [...prev, ...newPeriods];
+                });
+
+                if (result.periods && result.periods.length > 0) {
+                    setEarliestWeekDate(start);
+                } else {
+                    setEarliestWeekDate(start);
+                }
+            } else { // byMonth
+                setLoadedMonths(prev => {
+                    const newPeriods = result.periods || [];
+                    return isInitial ? newPeriods : [...prev, ...newPeriods];
+                });
+
+                if (result.periods && result.periods.length > 0) {
+                    setEarliestMonthDate(start);
+                } else {
+                    setEarliestMonthDate(start);
+                }
+            }
+
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Ошибка");
+            console.error(err);
+            setError("Не удалось загрузить данные");
         } finally {
-            setLoading(false);
+            setSequentialLoading(false);
         }
-    }, [period, startDate, endDate]);
+    };
+
+    const handleLoadMore = () => {
+        const viewType = activeTab;
+        const currentFrontier = viewType === 'byWeek' ? earliestWeekDate : earliestMonthDate;
+
+        if (!currentFrontier) return;
+
+        // Calculate previous period range based on activeTab
+        const previousEnd = subDays(currentFrontier, 1);
+        let previousStart: Date;
+
+        if (viewType === 'byMonth') {
+            previousStart = startOfMonth(previousEnd);
+        } else { // byWeek
+            previousStart = startOfWeek(previousEnd, { weekStartsOn: 1 });
+        }
+
+        fetchSequentialChunk(previousStart, previousEnd, false, viewType);
+    };
+
+    const handleTabChange = (value: string) => {
+        setActiveTab(value);
+
+        // If switching to sequential tabs, standard logic applies?
+        if (value === 'byWeek' || value === 'byMonth') {
+            // Check if already loaded
+            if (value === 'byWeek' && loadedWeeks.length > 0) return;
+            if (value === 'byMonth' && loadedMonths.length > 0) return;
+
+            // Initial Load Logic
+            // "Only until yesterday"
+            const yesterday = subDays(new Date(), 1);
+            let start: Date;
+
+            if (value === 'byMonth') {
+                start = startOfMonth(yesterday);
+            } else {
+                start = startOfWeek(yesterday, { weekStartsOn: 1 });
+            }
+
+            fetchSequentialChunk(start, yesterday, true, value);
+        } else {
+            // Standard tabs logic (refresh if needed or just show existing data)
+            if (period === 'custom' && startDate && endDate) {
+                fetchData('custom', startDate, endDate);
+            } else {
+                fetchData(period);
+            }
+        }
+    };
 
 
     const handleExport = () => {
@@ -423,12 +577,14 @@ export default function ReportsPage() {
         };
     }, [filteredCampaignStats]);
 
-    // Filter groupedData periods and recalculate their totals
-    const filteredGroupedData = useMemo(() => {
-        if (!groupedData?.periods) return null;
-        if (selectedCampaigns.size === 0) return groupedData;
+    // Unified filtered loaded periods based on activeTab
+    const filteredLoadedPeriods = useMemo(() => {
+        const source = activeTab === 'byWeek' ? loadedWeeks : loadedMonths;
 
-        const filteredPeriods = groupedData.periods.map(periodGroup => {
+        if (!source || source.length === 0) return [];
+        if (selectedCampaigns.size === 0) return source;
+
+        return source.map(periodGroup => {
             const filteredCampaigns = periodGroup.campaignStats.filter(campaign =>
                 selectedCampaigns.has(campaign.name)
             );
@@ -447,9 +603,7 @@ export default function ReportsPage() {
                 totals: newTotals,
             };
         });
-
-        return { periods: filteredPeriods };
-    }, [groupedData, selectedCampaigns]);
+    }, [activeTab, loadedWeeks, loadedMonths, selectedCampaigns]);
 
     if (loading) {
         return (
@@ -1219,16 +1373,16 @@ export default function ReportsPage() {
                             )}
                         </TabsContent>
 
-                        {/* Weekly View */}
+                        {/* Weekly View - Sequential */}
                         <TabsContent value="byWeek">
-                            {loading ? (
+                            {sequentialLoading && loadedWeeks.length === 0 ? (
                                 <div className="flex items-center justify-center py-12">
                                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                                 </div>
-                            ) : groupedData && groupedData.periods.length > 0 ? (
+                            ) : filteredLoadedPeriods.length > 0 ? (
                                 <div className="space-y-6">
-                                    {groupedData.periods.map((period) => (
-                                        <Card key={period.name} className="border-2">
+                                    {filteredLoadedPeriods.map((period, index) => (
+                                        <Card key={`${period.name}-${index}`} className="border-2">
                                             <CardHeader className="bg-muted/30">
                                                 <CardTitle className="text-lg flex items-center justify-between">
                                                     <span>{period.name}</span>
@@ -1242,6 +1396,25 @@ export default function ReportsPage() {
                                             </CardContent>
                                         </Card>
                                     ))}
+
+                                    {/* Load More Button */}
+                                    <div className="flex justify-center pt-4 pb-8">
+                                        <Button
+                                            variant="secondary"
+                                            onClick={handleLoadMore}
+                                            disabled={sequentialLoading}
+                                            className="min-w-[200px]"
+                                        >
+                                            {sequentialLoading ? (
+                                                <>
+                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    Загрузка...
+                                                </>
+                                            ) : (
+                                                "Загрузить предыдущую неделю"
+                                            )}
+                                        </Button>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="text-center py-12 text-muted-foreground">
@@ -1250,16 +1423,16 @@ export default function ReportsPage() {
                             )}
                         </TabsContent>
 
-                        {/* Monthly View */}
+                        {/* Monthly View - Sequential */}
                         <TabsContent value="byMonth">
-                            {loading ? (
+                            {sequentialLoading && loadedMonths.length === 0 ? (
                                 <div className="flex items-center justify-center py-12">
                                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                                 </div>
-                            ) : groupedData && groupedData.periods.length > 0 ? (
+                            ) : filteredLoadedPeriods.length > 0 ? (
                                 <div className="space-y-6">
-                                    {groupedData.periods.map((period) => (
-                                        <Card key={period.name} className="border-2">
+                                    {filteredLoadedPeriods.map((period, index) => (
+                                        <Card key={`${period.name}-${index}`} className="border-2">
                                             <CardHeader className="bg-muted/30">
                                                 <CardTitle className="text-lg flex items-center justify-between">
                                                     <span>{period.name}</span>
@@ -1273,6 +1446,25 @@ export default function ReportsPage() {
                                             </CardContent>
                                         </Card>
                                     ))}
+
+                                    {/* Load More Button */}
+                                    <div className="flex justify-center pt-4 pb-8">
+                                        <Button
+                                            variant="secondary"
+                                            onClick={handleLoadMore}
+                                            disabled={sequentialLoading}
+                                            className="min-w-[200px]"
+                                        >
+                                            {sequentialLoading ? (
+                                                <>
+                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    Загрузка...
+                                                </>
+                                            ) : (
+                                                "Загрузить предыдущий месяц"
+                                            )}
+                                        </Button>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="text-center py-12 text-muted-foreground">

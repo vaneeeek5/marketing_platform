@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Table,
@@ -12,34 +12,58 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
-import { Loader2, CalendarDays, Wallet } from "lucide-react";
+import { Loader2, Wallet, Calendar, ChevronDown } from "lucide-react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ru } from 'date-fns/locale';
-import { format } from 'date-fns';
+import {
+    format,
+    subDays,
+    startOfMonth,
+    endOfMonth,
+    subMonths,
+    startOfWeek,
+    endOfWeek,
+    subWeeks,
+    isAfter,
+    differenceInDays
+} from 'date-fns';
 import { registerLocale } from "react-datepicker";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
 registerLocale('ru', ru);
 
 import { ExpenseData } from "@/lib/metrika";
+
+type ViewMode = 'month' | 'week';
 
 export default function ExpensesPage() {
     const [expenses, setExpenses] = useState<ExpenseData[]>([]);
     const [campaignDictionary, setCampaignDictionary] = useState<string[]>([]);
     const [totalSpend, setTotalSpend] = useState(0);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Period state
-    const [period, setPeriod] = useState<string>("quarter");
-    const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
-    const [startDate, endDate] = dateRange;
-    const [showPeriodPopup, setShowPeriodPopup] = useState(false);
-    const [tempPeriod, setTempPeriod] = useState<string>("quarter");
-    const [showCustomRange, setShowCustomRange] = useState(false);
+    // View Mode state
+    const [viewMode, setViewMode] = useState<ViewMode>('month');
+
+    // Data range state
+    // We track the continuous range of loaded data: from `earliestLoadedDate` to `yesterday`
+    const [earliestLoadedDate, setEarliestLoadedDate] = useState<Date | null>(null);
+    const [latestLoadedDate, setLatestLoadedDate] = useState<Date | null>(null); // Anchor (usually yesterday)
 
     // Campaign filter state
     const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
     const [showCampaignFilter, setShowCampaignFilter] = useState(false);
+    const [hasDirectAccess, setHasDirectAccess] = useState(true);
+
+    // AbortController to manage pending requests
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // Get unique campaign names from expenses + dictionary
     const allCampaigns = Array.from(new Set([
@@ -47,142 +71,192 @@ export default function ExpensesPage() {
         ...campaignDictionary
     ])).sort();
 
-    // Filtered expenses based on selection (empty selection = show all)
+    // Filter expenses
     const filteredExpenses = selectedCampaigns.size === 0
         ? expenses
         : expenses.filter(e => selectedCampaigns.has(e.campaign));
 
-    // Recalculate total based on filtered expenses
     const filteredTotalSpend = filteredExpenses.reduce((sum, e) => sum + e.spend, 0);
 
-    // Calculate dates
-    const calculatePeriodDates = (periodType: string) => {
-        const today = new Date();
-        const end = new Date(today);
-        const start = new Date(today);
+    // Helper: Get 'Yesterday' as the fixed end date
+    const getAnchorDate = () => subDays(new Date(), 1);
 
-        switch (periodType) {
-            case "week":
-                start.setDate(today.getDate() - 7);
-                break;
-            case "month":
-                start.setDate(today.getDate() - 30);
-                break;
-            case "quarter":
-                start.setDate(today.getDate() - 90);
-                break;
-            case "year":
-                start.setDate(today.getDate() - 365);
-                break;
-            default:
-                return { start: null, end: null };
+    // Helper: Calculate initial range for a mode
+    const getInitialRange = (mode: ViewMode) => {
+        const end = getAnchorDate();
+        let start: Date;
+
+        if (mode === 'month') {
+            start = startOfMonth(end);
+        } else {
+            // Week starts on Monday
+            start = startOfWeek(end, { weekStartsOn: 1 });
         }
         return { start, end };
     };
 
-    const [hasDirectAccess, setHasDirectAccess] = useState(true);
+    // Helper: Calculate NEXT previous chunk based on current earliest date
+    const getNextPreviousChunk = (currentEarliest: Date, mode: ViewMode) => {
+        // The new chunk ends strictly before the current earliest
+        const end = subDays(currentEarliest, 1);
+        let start: Date;
 
-    const fetchData = useCallback(async (selectedPeriod: string, customStart?: Date | null, customEnd?: Date | null) => {
+        if (mode === 'month') {
+            start = startOfMonth(end);
+        } else {
+            start = startOfWeek(end, { weekStartsOn: 1 });
+        }
+        return { start, end };
+    };
+
+    // Reset and load initial data when View Mode changes
+    useEffect(() => {
+        const { start, end } = getInitialRange(viewMode);
+
+        // Reset state
+        setExpenses([]);
+        setCampaignDictionary([]);
+        setTotalSpend(0);
+        setEarliestLoadedDate(start);
+        setLatestLoadedDate(end);
+
+        loadChunk(start, end, true);
+    }, [viewMode]);
+
+    const loadChunk = async (start: Date, end: Date, isReset: boolean) => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
         setLoading(true);
+        setError(null);
+
         try {
-            let s: string | undefined;
-            let e: string | undefined;
+            const sStr = format(start, 'yyyy-MM-dd');
+            const eStr = format(end, 'yyyy-MM-dd');
 
-            if (selectedPeriod === "custom" && customStart && customEnd) {
-                // Custom range
-                s = format(customStart, 'yyyy-MM-dd');
-                e = format(customEnd, 'yyyy-MM-dd');
-            } else {
-                const { start, end } = calculatePeriodDates(selectedPeriod);
-                if (start && end) {
-                    s = format(start, 'yyyy-MM-dd');
-                    e = format(end, 'yyyy-MM-dd');
-                }
-            }
+            console.log(`Loading chunk: ${sStr} to ${eStr}`);
 
-            if (!s || !e) {
-                // Should not happen for valid periods, but handle safety
-                setLoading(false);
-                return;
-            }
+            const response = await fetch(`/api/expenses?startDate=${sStr}&endDate=${eStr}`, {
+                signal: abortController.signal
+            });
 
-            const response = await fetch(`/api/expenses?startDate=${s}&endDate=${e}`);
-            if (!response.ok) throw new Error("Ошибка загрузки данных");
+            if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
             const result = await response.json();
-            setExpenses(result.expenses || []);
-            setCampaignDictionary(result.campaignDictionary || []);
-            setTotalSpend(result.total?.spend || 0);
-            setHasDirectAccess(result.hasDirectAccess !== false); // Default to true if missing
-            setError(null);
-        } catch (err) {
+
+            // Merge Logic
+            setExpenses(prev => {
+                const base = isReset ? [] : prev;
+                const newItems = result.expenses || [];
+
+                // Merge map
+                const map = new Map<string, ExpenseData>();
+
+                // Add existing
+                base.forEach(item => map.set(item.campaign, { ...item }));
+
+                // Merge new
+                newItems.forEach((item: ExpenseData) => {
+                    const key = item.campaign;
+                    if (map.has(key)) {
+                        const existing = map.get(key)!;
+                        existing.spend += item.spend;
+                        existing.visits += item.visits;
+                        // Recalculate CPC
+                        existing.cpc = existing.visits > 0 ? existing.spend / existing.visits : 0;
+                    } else {
+                        map.set(key, item);
+                    }
+                });
+
+                return Array.from(map.values()).sort((a, b) => b.spend - a.spend);
+            });
+
+            // Update Dictionary
+            setCampaignDictionary(prev => {
+                const newDict = new Set(isReset ? [] : prev);
+                if (result.campaignDictionary) {
+                    result.campaignDictionary.forEach((c: string) => newDict.add(c));
+                }
+                return Array.from(newDict).sort();
+            });
+
+            // Update Total Spend
+            setTotalSpend(prev => (isReset ? 0 : prev) + (result.total?.spend || 0));
+
+            // Check direct access access
+            if (result.hasDirectAccess !== undefined) {
+                setHasDirectAccess(result.hasDirectAccess);
+            }
+
+            // Update Earliest Date if successful
+            if (!isReset) {
+                setEarliestLoadedDate(start);
+            }
+
+        } catch (err: any) {
+            if (err.name === 'AbortError') return;
             setError(err instanceof Error ? err.message : "Неизвестная ошибка");
         } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    // Initial fetch
-    useEffect(() => {
-        fetchData("quarter");
-    }, [fetchData]);
-
-    const handleApplyPeriod = () => {
-        if (tempPeriod === 'custom') {
-            setShowPeriodPopup(false);
-            setShowCustomRange(true);
-        } else {
-            setPeriod(tempPeriod);
-            setDateRange([null, null]);
-            fetchData(tempPeriod);
-            setShowPeriodPopup(false);
-            setShowCustomRange(false);
+            if (!abortController.signal.aborted) {
+                setLoading(false);
+            }
         }
     };
 
-    const handleApplyCustomRange = () => {
-        if (startDate && endDate) {
-            setPeriod('custom');
-            fetchData('custom', startDate, endDate);
-            setShowCustomRange(false);
-        }
+    const handleLoadMore = () => {
+        if (!earliestLoadedDate) return;
+
+        const { start, end } = getNextPreviousChunk(earliestLoadedDate, viewMode);
+        loadChunk(start, end, false);
     };
 
-    const getPeriodLabel = () => {
-        if (period === 'custom' && startDate && endDate) {
-            return `${format(startDate, 'dd.MM.yyyy')} - ${format(endDate, 'dd.MM.yyyy')}`;
-        }
-        switch (period) {
-            case "week": return "последние 7 дней";
-            case "month": return "последние 30 дней";
-            case "quarter": return "последние 90 дней";
-            case "year": return "последние 365 дней";
-            default: return "выбранный период";
-        }
+    const getFormattedRange = () => {
+        if (!earliestLoadedDate || !latestLoadedDate) return "Загрузка...";
+        return `${format(earliestLoadedDate, 'd MMMM yyyy', { locale: ru })} - ${format(latestLoadedDate, 'd MMMM yyyy', { locale: ru })}`;
     };
 
     return (
-        <div className="space-y-6 animate-fadeIn">
+        <div className="space-y-6 animate-fadeIn pb-10">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Расходы</h1>
                     <p className="text-muted-foreground mt-1">
-                        Статистика расходов по кампаниям за {getPeriodLabel()}
+                        Данные за период: <span className="font-medium text-foreground">{getFormattedRange()}</span>
                     </p>
                 </div>
 
-                {/* Period Filter */}
                 <div className="flex gap-2 items-center">
+                    {/* View Mode Switcher */}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" className="flex items-center gap-2">
+                                <Calendar className="h-4 w-4" />
+                                {viewMode === 'month' ? 'По месяцам' : 'По неделям'}
+                                <ChevronDown className="h-4 w-4 opacity-50" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setViewMode('month')}>
+                                По месяцам
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setViewMode('week')}>
+                                По неделям
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
                     {/* Campaign Filter */}
                     <div className="relative">
                         <div
                             className={`flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted/50 cursor-pointer bg-background ${selectedCampaigns.size > 0 ? 'border-primary' : ''}`}
                             onClick={() => setShowCampaignFilter(!showCampaignFilter)}
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
-                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                            </svg>
+                            <Wallet className="h-4 w-4 text-muted-foreground" />
                             <span className="font-medium text-sm">
                                 {selectedCampaigns.size === 0 ? 'Все кампании' :
                                     selectedCampaigns.size === 1 ? Array.from(selectedCampaigns)[0] :
@@ -197,7 +271,6 @@ export default function ExpensesPage() {
                                     className="fixed inset-0 z-40"
                                     onClick={() => setShowCampaignFilter(false)}
                                 />
-
                                 <div className="absolute right-0 z-50 mt-2 w-64 bg-popover text-popover-foreground rounded-lg shadow-xl border p-4 animate-in fade-in zoom-in-95 duration-200">
                                     <div className="flex items-center justify-between mb-3">
                                         <h3 className="font-semibold text-sm">Кампании</h3>
@@ -210,7 +283,6 @@ export default function ExpensesPage() {
                                             </button>
                                         )}
                                     </div>
-
                                     <div className="space-y-1 max-h-64 overflow-y-auto">
                                         {allCampaigns.length === 0 ? (
                                             <p className="text-xs text-muted-foreground py-2">Нет доступных кампаний</p>
@@ -225,11 +297,8 @@ export default function ExpensesPage() {
                                                         checked={selectedCampaigns.has(campaign)}
                                                         onChange={(e) => {
                                                             const newSet = new Set(selectedCampaigns);
-                                                            if (e.target.checked) {
-                                                                newSet.add(campaign);
-                                                            } else {
-                                                                newSet.delete(campaign);
-                                                            }
+                                                            if (e.target.checked) newSet.add(campaign);
+                                                            else newSet.delete(campaign);
                                                             setSelectedCampaigns(newSet);
                                                         }}
                                                         className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
@@ -243,113 +312,6 @@ export default function ExpensesPage() {
                             </>
                         )}
                     </div>
-
-                    <div className="relative">
-                        <div
-                            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted/50 cursor-pointer bg-background"
-                            onClick={() => setShowPeriodPopup(!showPeriodPopup)}
-                        >
-                            <CalendarDays className="h-5 w-5 text-muted-foreground" />
-                            <span className="font-medium text-sm">
-                                {period === 'custom' ? getPeriodLabel() :
-                                    (period === 'week' ? "Неделя" :
-                                        period === 'month' ? "Месяц" :
-                                            period === 'quarter' ? "Квартал" :
-                                                period === 'year' ? "Год" : "Период")}
-                            </span>
-                        </div>
-
-                        {/* Period Popup */}
-                        {showPeriodPopup && (
-                            <>
-                                <div
-                                    className="fixed inset-0 z-40"
-                                    onClick={() => setShowPeriodPopup(false)}
-                                />
-
-                                <div className="absolute right-0 z-50 mt-2 w-72 bg-popover text-popover-foreground rounded-lg shadow-xl border p-4 animate-in fade-in zoom-in-95 duration-200">
-                                    <h3 className="font-semibold mb-3 text-sm">Выберите период</h3>
-
-                                    <div className="space-y-1">
-                                        {[
-                                            { value: 'week', label: 'Неделя', desc: 'Последние 7 дней' },
-                                            { value: 'month', label: 'Месяц', desc: 'Последние 30 дней' },
-                                            { value: 'quarter', label: 'Квартал', desc: 'Последние 90 дней' },
-                                            { value: 'year', label: 'Год', desc: 'Последние 365 дней' },
-                                            { value: 'custom', label: '📅 Свой диапазон', desc: 'Выбрать даты вручную' }
-                                        ].map(option => (
-                                            <div
-                                                key={option.value}
-                                                className={`flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors ${tempPeriod === option.value ? 'bg-primary/10' : 'hover:bg-muted'
-                                                    }`}
-                                                onClick={() => setTempPeriod(option.value)}
-                                            >
-                                                <div className={`mt-0.5 h-4 w-4 rounded-full border border-primary flex items-center justify-center ${tempPeriod === option.value ? 'bg-primary' : ''
-                                                    }`}>
-                                                    {tempPeriod === option.value && <div className="h-2 w-2 rounded-full bg-primary-foreground" />}
-                                                </div>
-                                                <div>
-                                                    <div className="font-medium text-sm">{option.label}</div>
-                                                    <div className="text-xs text-muted-foreground">{option.desc}</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <Button
-                                        onClick={handleApplyPeriod}
-                                        className="w-full mt-4"
-                                        size="sm"
-                                    >
-                                        Применить
-                                    </Button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-
-                    {/* Custom Range Modal */}
-                    {showCustomRange && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
-                            <div className="bg-background rounded-lg shadow-lg w-full max-w-sm p-6 border">
-                                <h3 className="text-lg font-semibold mb-4">Выберите диапазон дат</h3>
-
-                                <div className="space-y-4">
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-sm font-medium">Период:</label>
-                                        <DatePicker
-                                            selected={startDate}
-                                            onChange={(update: [Date | null, Date | null]) => {
-                                                setDateRange(update);
-                                            }}
-                                            startDate={startDate}
-                                            endDate={endDate}
-                                            selectsRange
-                                            inline
-                                            locale="ru"
-                                        />
-                                    </div>
-
-                                    <div className="flex gap-3 pt-2">
-                                        <Button
-                                            onClick={handleApplyCustomRange}
-                                            disabled={!startDate || !endDate}
-                                            className="flex-1"
-                                        >
-                                            Применить
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => setShowCustomRange(false)}
-                                            className="flex-1"
-                                        >
-                                            Отмена
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             </div>
 
@@ -376,14 +338,10 @@ export default function ExpensesPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {loading ? (
-                                <Loader2 className="h-6 w-6 animate-spin" />
-                            ) : (
-                                formatCurrency(filteredTotalSpend)
-                            )}
+                            {formatCurrency(filteredTotalSpend)}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                            {selectedCampaigns.size > 0 ? `Сумма по выбранным кампаниям` : 'Суммарный расход за период'}
+                            {selectedCampaigns.size > 0 ? `Сумма по выбранным кампаниям` : 'Суммарный расход за загруженный период'}
                         </p>
                     </CardContent>
                 </Card>
@@ -395,43 +353,65 @@ export default function ExpensesPage() {
                     <CardTitle>Расход по кампаниям</CardTitle>
                 </CardHeader>
                 <CardContent className="pl-2">
-                    {loading ? (
-                        <div className="flex items-center justify-center min-h-[200px]">
+                    {expenses.length === 0 && loading ? (
+                        <div className="flex flex-col items-center justify-center min-h-[200px] gap-2">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <span className="text-sm text-muted-foreground">Загрузка данных...</span>
                         </div>
                     ) : error ? (
                         <div className="text-center text-destructive py-8">{error}</div>
                     ) : (
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Кампания</TableHead>
-                                    <TableHead>Визиты</TableHead>
-                                    <TableHead>CPC (ср.)</TableHead>
-                                    <TableHead className="text-right">Расход</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {filteredExpenses.length === 0 ? (
+                        <div className="space-y-4">
+                            <Table>
+                                <TableHeader>
                                     <TableRow>
-                                        <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
-                                            {selectedCampaigns.size > 0 ? 'Нет данных для выбранных кампаний' : 'Нет данных о расходах за этот период'}
-                                        </TableCell>
+                                        <TableHead>Кампания</TableHead>
+                                        <TableHead>Визиты</TableHead>
+                                        <TableHead>CPC (ср.)</TableHead>
+                                        <TableHead className="text-right">Расход</TableHead>
                                     </TableRow>
-                                ) : (
-                                    filteredExpenses.map((item) => (
-                                        <TableRow key={item.campaign}>
-                                            <TableCell className="font-medium">{item.campaign}</TableCell>
-                                            <TableCell>{item.visits}</TableCell>
-                                            <TableCell>{formatCurrency(item.cpc)}</TableCell>
-                                            <TableCell className="text-right font-bold">
-                                                {formatCurrency(item.spend)}
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredExpenses.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
+                                                {selectedCampaigns.size > 0 ? 'Нет данных для выбранных кампаний' : 'Нет данных'}
                                             </TableCell>
                                         </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
+                                    ) : (
+                                        filteredExpenses.map((item) => (
+                                            <TableRow key={item.campaign}>
+                                                <TableCell className="font-medium">{item.campaign}</TableCell>
+                                                <TableCell>{item.visits}</TableCell>
+                                                <TableCell>{formatCurrency(item.cpc)}</TableCell>
+                                                <TableCell className="text-right font-bold">
+                                                    {formatCurrency(item.spend)}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+
+                            {/* Load More Button */}
+                            <div className="flex justify-center pt-4">
+                                <Button
+                                    variant="secondary"
+                                    onClick={handleLoadMore}
+                                    disabled={loading}
+                                    className="min-w-[200px]"
+                                >
+                                    {loading ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Загрузка...
+                                        </>
+                                    ) : (
+                                        `Загрузить предыдущий ${viewMode === 'month' ? 'месяц' : 'неделю'}`
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
                     )}
                 </CardContent>
             </Card>
