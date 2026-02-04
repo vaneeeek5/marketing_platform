@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Table,
@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { CampaignStats, AnalyticsResponse, GroupedAnalyticsResponse, PeriodGroup } from "@/types";
 import { formatNumber, formatCurrency, formatPercent } from "@/lib/utils";
-import { FileText, Download, Loader2, BarChart3, CalendarDays } from "lucide-react";
+import { FileText, Download, Loader2, BarChart3, CalendarDays, Filter } from "lucide-react";
 import * as XLSX from "xlsx";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -123,10 +123,15 @@ function PeriodTable({ period }: { period: PeriodGroup }) {
 export default function ReportsPage() {
     const [data, setData] = useState<AnalyticsResponse | null>(null);
     const [groupedData, setGroupedData] = useState<GroupedAnalyticsResponse | null>(null);
+    const [campaignDictionary, setCampaignDictionary] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
     const [activeTab, setActiveTab] = useState<string>("all");
+
+    // Campaign filter state
+    const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
+    const [showCampaignFilter, setShowCampaignFilter] = useState(false);
 
     // Period state
     const [period, setPeriod] = useState<string>("quarter");
@@ -135,6 +140,22 @@ export default function ReportsPage() {
     const [showPeriodPopup, setShowPeriodPopup] = useState(false);
     const [tempPeriod, setTempPeriod] = useState<string>("quarter");
     const [showCustomRange, setShowCustomRange] = useState(false);
+
+    // Calculate all unique campaigns from dictionary AND data
+    const allCampaigns = useMemo(() => {
+        const set = new Set<string>();
+        // Add dictionary items first
+        campaignDictionary.forEach(c => set.add(c));
+
+        // Add current stats items just in case
+        if (data?.campaignStats) {
+            data.campaignStats.forEach(c => set.add(c.name));
+        }
+        if (groupedData?.periods) {
+            groupedData.periods.forEach(p => p.campaignStats.forEach(c => set.add(c.name)));
+        }
+        return Array.from(set).sort();
+    }, [data, groupedData]);
 
     // Calculate dates
     const calculatePeriodDates = (periodType: string) => {
@@ -196,6 +217,12 @@ export default function ReportsPage() {
                     const expensesRes = await fetch(`/api/expenses?startDate=${s}&endDate=${e}`);
                     if (expensesRes.ok) {
                         const expensesData = await expensesRes.json();
+
+                        // Set campaign dictionary from expenses API
+                        if (expensesData.campaignDictionary) {
+                            setCampaignDictionary(expensesData.campaignDictionary);
+                        }
+
                         if (expensesData.expenses && result.campaignStats) {
                             // Create a map of expenses by campaign name (lowercase for matching)
                             const expenseMap = new Map<string, { spend: number; visits: number }>();
@@ -252,6 +279,18 @@ export default function ReportsPage() {
         }
     };
 
+    const handleRefresh = () => {
+        if (period === 'custom' && startDate && endDate) {
+            fetchData('custom', startDate, endDate);
+        } else {
+            fetchData(period);
+        }
+        if (activeTab === 'byWeek' || activeTab === 'byMonth') {
+            // Re-fetch grouped data if on a grouped tab
+            fetchGroupedData(activeTab);
+        }
+    };
+
     const getPeriodLabel = () => {
         if (period === 'custom' && startDate && endDate) {
             return `${format(startDate, 'dd.MM.yyyy')} - ${format(endDate, 'dd.MM.yyyy')}`;
@@ -264,6 +303,33 @@ export default function ReportsPage() {
             default: return "выбранный период";
         }
     };
+
+    const fetchGroupedData = useCallback(async (viewType: string) => {
+        setLoading(true);
+        try {
+            let s: string;
+            let e: string;
+            if (startDate && endDate) {
+                s = format(startDate, 'yyyy-MM-dd');
+                e = format(endDate, 'yyyy-MM-dd');
+            } else {
+                const { start, end } = calculatePeriodDates(period);
+                if (!start || !end) throw new Error("Invalid period");
+                s = format(start, 'yyyy-MM-dd');
+                e = format(end, 'yyyy-MM-dd');
+            }
+            const url = `/api/analytics/grouped?viewType=${viewType}&startDate=${s}&endDate=${e}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Ошибка загрузки");
+            const result = await response.json();
+            setGroupedData(result);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Ошибка");
+        } finally {
+            setLoading(false);
+        }
+    }, [period, startDate, endDate]);
+
 
     const handleExport = () => {
         if (!data?.campaignStats) return;
@@ -357,14 +423,52 @@ export default function ReportsPage() {
 
     const { campaignStats, kpi } = data;
 
-    // Calculate totals
-    const totals = {
-        totalLeads: campaignStats.reduce((sum, c) => sum + c.totalLeads, 0),
-        targetLeads: campaignStats.reduce((sum, c) => sum + c.targetLeads, 0),
-        qualifiedLeads: campaignStats.reduce((sum, c) => sum + c.qualifiedLeads, 0),
-        sales: campaignStats.reduce((sum, c) => sum + c.sales, 0),
-        spend: campaignStats.reduce((sum, c) => sum + (c.spend || 0), 0),
-    };
+    // Filter campaignStats based on selectedCampaigns
+    const filteredCampaignStats = useMemo(() => {
+        if (!data?.campaignStats) return [];
+        if (selectedCampaigns.size === 0) return data.campaignStats;
+        return data.campaignStats.filter(campaign => selectedCampaigns.has(campaign.name));
+    }, [data, selectedCampaigns]);
+
+    // Recalculate totals based on filteredCampaignStats
+    const filteredTotals = useMemo(() => {
+        return {
+            totalLeads: filteredCampaignStats.reduce((sum, c) => sum + c.totalLeads, 0),
+            targetLeads: filteredCampaignStats.reduce((sum, c) => sum + c.targetLeads, 0),
+            qualifiedLeads: filteredCampaignStats.reduce((sum, c) => sum + c.qualifiedLeads, 0),
+            sales: filteredCampaignStats.reduce((sum, c) => sum + c.sales, 0),
+            spend: filteredCampaignStats.reduce((sum, c) => sum + (c.spend || 0), 0),
+        };
+    }, [filteredCampaignStats]);
+
+    // Filter groupedData periods and recalculate their totals
+    const filteredGroupedData = useMemo(() => {
+        if (!groupedData?.periods) return null;
+        if (selectedCampaigns.size === 0) return groupedData;
+
+        const filteredPeriods = groupedData.periods.map(periodGroup => {
+            const filteredCampaigns = periodGroup.campaignStats.filter(campaign =>
+                selectedCampaigns.has(campaign.name)
+            );
+
+            const newTotals = {
+                totalLeads: filteredCampaigns.reduce((sum, c) => sum + c.totalLeads, 0),
+                targetLeads: filteredCampaigns.reduce((sum, c) => sum + c.targetLeads, 0),
+                qualifiedLeads: filteredCampaigns.reduce((sum, c) => sum + c.qualifiedLeads, 0),
+                sales: filteredCampaigns.reduce((sum, c) => sum + c.sales, 0),
+                spend: filteredCampaigns.reduce((sum, c) => sum + (c.spend || 0), 0),
+            };
+
+            return {
+                ...periodGroup,
+                campaignStats: filteredCampaigns,
+                totals: newTotals,
+            };
+        });
+
+        return { periods: filteredPeriods };
+    }, [groupedData, selectedCampaigns]);
+
 
     return (
         <div className="space-y-6 animate-fadeIn">
@@ -486,6 +590,82 @@ export default function ReportsPage() {
                         </div>
                     )}
 
+                    <Button
+                        onClick={handleRefresh}
+                        className="gap-2"
+                        variant="outline"
+                    >
+                        <Loader2 className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                        Обновить
+                    </Button>
+
+                    {/* Campaign Filter */}
+                    <div className="relative">
+                        <div
+                            className={`flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted/50 cursor-pointer bg-background ${selectedCampaigns.size > 0 ? 'border-primary' : ''}`}
+                            onClick={() => setShowCampaignFilter(!showCampaignFilter)}
+                        >
+                            <Filter className="h-4 w-4 text-muted-foreground" />
+                            <span className="font-medium text-sm hidden sm:inline">
+                                {selectedCampaigns.size === 0 ? 'Все кампании' :
+                                    selectedCampaigns.size === 1 ? Array.from(selectedCampaigns)[0] :
+                                        `${selectedCampaigns.size} кампаний`}
+                            </span>
+                        </div>
+
+                        {/* Campaign Filter Popup */}
+                        {showCampaignFilter && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setShowCampaignFilter(false)}
+                                />
+                                <div className="absolute right-0 z-50 mt-2 w-64 bg-popover text-popover-foreground rounded-lg shadow-xl border p-4 animate-in fade-in zoom-in-95 duration-200">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="font-semibold text-sm">Кампании</h3>
+                                        {selectedCampaigns.size > 0 && (
+                                            <button
+                                                className="text-sm text-primary hover:underline"
+                                                onClick={() => setSelectedCampaigns(new Set())}
+                                            >
+                                                Сбросить
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                                        {allCampaigns.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground py-2">Нет доступных кампаний</p>
+                                        ) : (
+                                            allCampaigns.map(campaign => (
+                                                <label
+                                                    key={campaign}
+                                                    className="flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted transition-colors"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedCampaigns.has(campaign)}
+                                                        onChange={(e) => {
+                                                            const newSet = new Set(selectedCampaigns);
+                                                            if (e.target.checked) {
+                                                                newSet.add(campaign);
+                                                            } else {
+                                                                newSet.delete(campaign);
+                                                            }
+                                                            setSelectedCampaigns(newSet);
+                                                        }}
+                                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    />
+                                                    <span className="text-sm">{campaign}</span>
+                                                </label>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
                     <Button onClick={handleExport} disabled={exporting} className="gap-2">
                         {exporting ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -588,7 +768,7 @@ export default function ReportsPage() {
                                             <TableHead className="text-right">% Квал</TableHead>
                                             <TableHead className="text-right">Продажи</TableHead>
                                             <TableHead className="text-right">Конверсия</TableHead>
-                                            {totals.spend > 0 && (
+                                            {filteredTotals.spend > 0 && (
                                                 <>
                                                     <TableHead className="text-right">Расходы</TableHead>
                                                     <TableHead className="text-right">CPL</TableHead>
@@ -599,7 +779,7 @@ export default function ReportsPage() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {campaignStats.map((campaign) => (
+                                        {filteredCampaignStats.map((campaign) => (
                                             <TableRow key={campaign.name}>
                                                 <TableCell className="font-medium">
                                                     {campaign.name}
@@ -702,53 +882,53 @@ export default function ReportsPage() {
                                         <TableRow className="bg-muted/50 font-medium">
                                             <TableCell>ИТОГО</TableCell>
                                             <TableCell className="text-right">
-                                                {formatNumber(totals.totalLeads)}
+                                                {formatNumber(filteredTotals.totalLeads)}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {formatNumber(totals.targetLeads)}
+                                                {formatNumber(filteredTotals.targetLeads)}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {totals.totalLeads > 0
-                                                    ? ((totals.targetLeads / totals.totalLeads) * 100).toFixed(1)
+                                                {filteredTotals.totalLeads > 0
+                                                    ? ((filteredTotals.targetLeads / filteredTotals.totalLeads) * 100).toFixed(1)
                                                     : 0}
                                                 %
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {formatNumber(totals.qualifiedLeads)}
+                                                {formatNumber(filteredTotals.qualifiedLeads)}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {totals.totalLeads > 0
-                                                    ? ((totals.qualifiedLeads / totals.totalLeads) * 100).toFixed(1)
+                                                {filteredTotals.totalLeads > 0
+                                                    ? ((filteredTotals.qualifiedLeads / filteredTotals.totalLeads) * 100).toFixed(1)
                                                     : 0}
                                                 %
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {formatNumber(totals.sales)}
+                                                {formatNumber(filteredTotals.sales)}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {totals.totalLeads > 0
-                                                    ? ((totals.sales / totals.totalLeads) * 100).toFixed(1)
+                                                {filteredTotals.totalLeads > 0
+                                                    ? ((filteredTotals.sales / filteredTotals.totalLeads) * 100).toFixed(1)
                                                     : 0}
                                                 %
                                             </TableCell>
-                                            {totals.spend > 0 && (
+                                            {filteredTotals.spend > 0 && (
                                                 <>
                                                     <TableCell className="text-right">
-                                                        {formatCurrency(totals.spend)}
+                                                        {formatCurrency(filteredTotals.spend)}
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        {totals.totalLeads > 0
-                                                            ? formatCurrency(totals.spend / totals.totalLeads)
+                                                        {filteredTotals.totalLeads > 0
+                                                            ? formatCurrency(filteredTotals.spend / filteredTotals.totalLeads)
                                                             : "—"}
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        {totals.targetLeads > 0
-                                                            ? formatCurrency(totals.spend / totals.targetLeads)
+                                                        {filteredTotals.targetLeads > 0
+                                                            ? formatCurrency(filteredTotals.spend / filteredTotals.targetLeads)
                                                             : "—"}
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        {totals.qualifiedLeads > 0
-                                                            ? formatCurrency(totals.spend / totals.qualifiedLeads)
+                                                        {filteredTotals.qualifiedLeads > 0
+                                                            ? formatCurrency(filteredTotals.spend / filteredTotals.qualifiedLeads)
                                                             : "—"}
                                                     </TableCell>
                                                 </>
@@ -770,7 +950,7 @@ export default function ReportsPage() {
                                     </CardHeader>
                                     <CardContent>
                                         <div className="space-y-4">
-                                            {[...campaignStats]
+                                            {[...filteredCampaignStats]
                                                 .sort((a, b) => b.totalLeads - a.totalLeads)
                                                 .slice(0, 5)
                                                 .map((campaign, index) => (
@@ -801,7 +981,7 @@ export default function ReportsPage() {
                                     </CardHeader>
                                     <CardContent>
                                         <div className="space-y-4">
-                                            {[...campaignStats]
+                                            {[...filteredCampaignStats]
                                                 .sort((a, b) => b.targetLeads - a.targetLeads)
                                                 .slice(0, 5)
                                                 .map((campaign, index) => (
@@ -837,7 +1017,7 @@ export default function ReportsPage() {
                                     </CardHeader>
                                     <CardContent>
                                         <div className="space-y-4">
-                                            {[...campaignStats]
+                                            {[...filteredCampaignStats]
                                                 .sort((a, b) => b.qualifiedLeads - a.qualifiedLeads)
                                                 .slice(0, 5)
                                                 .map((campaign, index) => (
@@ -866,7 +1046,7 @@ export default function ReportsPage() {
                             </div>
 
                             {/* Cost-based rankings */}
-                            {totals.spend > 0 && (
+                            {filteredTotals.spend > 0 && (
                                 <>
                                     <h4 className="text-sm font-semibold text-muted-foreground mt-6 mb-3">Стоимость лидов</h4>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -879,7 +1059,7 @@ export default function ReportsPage() {
                                             </CardHeader>
                                             <CardContent>
                                                 <div className="space-y-3">
-                                                    {[...campaignStats]
+                                                    {[...filteredCampaignStats]
                                                         .filter(c => c.cpl && c.cpl > 0)
                                                         .sort((a, b) => (a.cpl || 0) - (b.cpl || 0))
                                                         .slice(0, 5)

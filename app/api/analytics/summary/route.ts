@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSheetData, getBudgetData, getSheetNames } from "@/lib/googleSheets";
+import { getSheetData, getBudgetData, getSheetNames, getMetrikaSettings } from "@/lib/googleSheets";
 import { COLUMN_NAMES, CURRENT_MONTH_SHEET, THRESHOLDS } from "@/lib/constants";
 import {
     isTargetLead,
@@ -112,6 +112,34 @@ export async function GET(request: NextRequest) {
         }
 
         const budgetData = await getBudgetData();
+        const settings = await getMetrikaSettings(); // Fetch settings for mapping
+
+        // Build Campaign Normalization Map
+        const campaignMap = new Map<string, string>();
+        if (settings.expenses_mapping) {
+            settings.expenses_mapping.forEach(mapping => {
+                // Normalize keys for case-insensitive lookup
+                const normUtm = mapping.utmName.toLowerCase().trim().replace(/[\u2013\u2014]/g, "-").replace(/\s+/g, " ");
+                const normDirect = mapping.directName.toLowerCase().trim().replace(/[\u2013\u2014]/g, "-").replace(/\s+/g, " ");
+
+                if (mapping.displayName) {
+                    if (mapping.utmName) campaignMap.set(normUtm, mapping.displayName);
+                    if (mapping.directName) campaignMap.set(normDirect, mapping.displayName);
+                }
+            });
+        }
+
+        // Also add legacy rules if not covered
+        if (settings.campaign_rules) {
+            Object.entries(settings.campaign_rules).forEach(([id, rule]) => {
+                if (rule.name) {
+                    // If rule has a name, treat it as a display name for itself? 
+                    // Or mapping? Usually rule.name IS the standardized name.
+                    // But we might have incoming UTMs that map to this rule ID in legacy logic.
+                    // Here we assume sheet already has something close to final, but we map it just in case.
+                }
+            });
+        }
 
         // Filter data by period
         const filteredData = allData.filter(row => {
@@ -213,8 +241,30 @@ export async function GET(request: NextRequest) {
         filteredData.forEach((row) => {
             totalLeads++;
 
-            const campaign = String(row[COLUMN_NAMES.CAMPAIGN] || "Другое");
+            const rowCampaign = String(row[COLUMN_NAMES.CAMPAIGN] || "Другое");
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
+
+            // --- Campaign Normalization Logic ---
+            let campaign = rowCampaign;
+            if (campaignMap) {
+                // Normalize the raw campaign name from the sheet
+                const normRaw = rowCampaign.toLowerCase().trim().replace(/[\u2013\u2014]/g, "-").replace(/\s+/g, " ");
+
+                // 1. Try direct match in map
+                if (campaignMap.has(normRaw)) {
+                    campaign = campaignMap.get(normRaw)!;
+                } else {
+                    // 2. If valid campaign dictionary exists, try to find close match? 
+                    // For now, strict mapping based on settings is safest.
+                }
+
+                // 3. Resolve recursive mapping (UTM -> Direct -> Display)
+                // The map might point A -> B, and B -> C. We want C.
+                // Existing map construction in lib/metrika handles this partially, 
+                // but let's ensure we get the final display name.
+                // In this route, we will build a robust map that points directly to the final name.
+            }
+            // --- End Normalization ---
 
             // --- Custom Logic per User Request ---
 

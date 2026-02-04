@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSheetData, getSheetNames } from "@/lib/googleSheets";
-import { COLUMN_NAMES, CURRENT_MONTH_SHEET } from "@/lib/constants";
-import { parseDate } from "@/lib/utils";
+import { getSheetData, getSheetNames, getMetrikaSettings, getCampaignMapping } from "@/lib/googleSheets";
+import { COLUMN_NAMES } from "@/lib/constants";
+import { parseDate, normalizeCampaignName } from "@/lib/utils";
 import { PeriodGroup, GroupedAnalyticsResponse, KPIMetrics, CampaignStats } from "@/types";
 import { startOfWeek, endOfWeek, format, startOfMonth, endOfMonth, eachWeekOfInterval, eachMonthOfInterval, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -11,12 +11,12 @@ function groupDataByWeeks(
     allData: Record<string, string | number | undefined>[],
     startDate: Date,
     endDate: Date,
-    expensesMap: Map<string, number>
+    expensesMap: Map<string, number>,
+    campaignMap: Map<string, string>
 ): PeriodGroup[] {
-    // Get all weeks in the range
     const weeks = eachWeekOfInterval(
         { start: startDate, end: endDate },
-        { weekStartsOn: 1, locale: ru } // Monday start
+        { weekStartsOn: 1, locale: ru }
     );
 
     const periodGroups: PeriodGroup[] = [];
@@ -24,13 +24,11 @@ function groupDataByWeeks(
     for (const weekStart of weeks) {
         const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1, locale: ru });
 
-        // Filter data for this week
         const weekData = allData.filter(row => {
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
             const date = parseDate(dateStr);
             if (!date) return false;
 
-            // Reset hours for comparison
             const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
             const weekStartNorm = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate());
             const weekEndNorm = new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate());
@@ -38,10 +36,9 @@ function groupDataByWeeks(
             return targetDate >= weekStartNorm && targetDate <= weekEndNorm;
         });
 
-        if (weekData.length === 0) continue; // Skip empty weeks
+        if (weekData.length === 0) continue;
 
-        // Calculate stats for this week
-        const { campaignStats, totals } = calculateStats(weekData, expensesMap);
+        const { campaignStats, totals } = calculateStats(weekData, expensesMap, campaignMap);
 
         periodGroups.push({
             name: `${format(weekStart, "dd.MM")} - ${format(weekEnd, "dd.MM")}`,
@@ -60,9 +57,9 @@ function groupDataByMonths(
     allData: Record<string, string | number | undefined>[],
     startDate: Date,
     endDate: Date,
-    expensesMap: Map<string, number>
+    expensesMap: Map<string, number>,
+    campaignMap: Map<string, string>
 ): PeriodGroup[] {
-    // Get all months in the range
     const months = eachMonthOfInterval({ start: startDate, end: endDate });
 
     const periodGroups: PeriodGroup[] = [];
@@ -70,7 +67,6 @@ function groupDataByMonths(
     for (const monthStart of months) {
         const monthEnd = endOfMonth(monthStart);
 
-        // Filter data for this month
         const monthData = allData.filter(row => {
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
             const date = parseDate(dateStr);
@@ -83,13 +79,12 @@ function groupDataByMonths(
             return targetDate >= monthStartNorm && targetDate <= monthEndNorm;
         });
 
-        if (monthData.length === 0) continue; // Skip empty months
+        if (monthData.length === 0) continue;
 
-        // Calculate stats for this month
-        const { campaignStats, totals } = calculateStats(monthData, expensesMap);
+        const { campaignStats, totals } = calculateStats(monthData, expensesMap, campaignMap);
 
         periodGroups.push({
-            name: format(monthStart, "LLLL yyyy", { locale: ru }), // "Декабрь 2025"
+            name: format(monthStart, "LLLL yyyy", { locale: ru }),
             startDate: format(monthStart, "yyyy-MM-dd"),
             endDate: format(monthEnd, "yyyy-MM-dd"),
             campaignStats,
@@ -103,7 +98,8 @@ function groupDataByMonths(
 // Helper: Calculate campaign stats and totals from data
 function calculateStats(
     data: Record<string, string | number | undefined>[],
-    expensesMap: Map<string, number>
+    expensesMap: Map<string, number>,
+    campaignMap: Map<string, string>
 ): {
     campaignStats: CampaignStats[];
     totals: { totalLeads: number; targetLeads: number; qualifiedLeads: number; sales: number; spend: number };
@@ -119,17 +115,21 @@ function calculateStats(
     let salesCount = 0;
 
     data.forEach(row => {
-        const campaign = String(row[COLUMN_NAMES.CAMPAIGN] || "Другое");
+        let campaign = String(row[COLUMN_NAMES.CAMPAIGN] || "Другое");
 
-        // Target check
+        // Apply campaign mapping (normalization)
+        const normName = normalizeCampaignName(campaign);
+        const mappedName = campaignMap.get(normName);
+        if (mappedName) {
+            campaign = mappedName;
+        }
+
         const targetVal = String(row["Целевой"] || "").trim().toLowerCase();
         const isTarget = targetVal === "целевой" || targetVal === "целевая" || targetVal === "да" || targetVal === "+";
 
-        // Qualified check
         const qualVal = String(row["Квалификация"] || "").trim().toLowerCase();
         const isQualified = qualVal === "квал" || qualVal === "квалифицированный";
 
-        // Sales check
         const salesRaw = row["Сумма продажи"];
         const isSales = salesRaw && String(salesRaw).trim() !== "" && String(salesRaw) !== "0";
 
@@ -154,10 +154,9 @@ function calculateStats(
         }
     });
 
-    // Build campaign stats array
     const campaignStats: CampaignStats[] = Object.entries(campaignStatsMap)
         .map(([name, stats]) => {
-            const spend = expensesMap.get(name.toLowerCase().trim()) || 0;
+            const spend = expensesMap.get(normalizeCampaignName(name)) || 0;
             return {
                 name,
                 totalLeads: stats.total,
@@ -187,11 +186,10 @@ function calculateStats(
     };
 }
 
-// GET /api/analytics/grouped - получить данные, сгруппированные по неделям или месяцам
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
-        const viewType = searchParams.get("viewType") || "byWeek"; // byWeek | byMonth
+        const viewType = searchParams.get("viewType") || "byWeek";
         const startDateStr = searchParams.get("startDate");
         const endDateStr = searchParams.get("endDate");
 
@@ -205,7 +203,6 @@ export async function GET(request: NextRequest) {
         const startDate = parseISO(startDateStr);
         const endDate = parseISO(endDateStr);
 
-        // Fetch all sheets (to cover the date range)
         const allSheetNames = await getSheetNames();
         const allData: Record<string, string | number | undefined>[] = [];
 
@@ -218,7 +215,6 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // Filter data by date range
         const filteredData = allData.filter(row => {
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
             const date = parseDate(dateStr);
@@ -231,7 +227,6 @@ export async function GET(request: NextRequest) {
             return targetDate >= start && targetDate <= end;
         });
 
-        // Fetch expenses for the period
         const expensesMap = new Map<string, number>();
         try {
             const expensesRes = await fetch(
@@ -241,7 +236,7 @@ export async function GET(request: NextRequest) {
                 const expensesData = await expensesRes.json();
                 if (expensesData.expenses) {
                     expensesData.expenses.forEach((exp: { campaign: string; spend: number }) => {
-                        expensesMap.set(exp.campaign.toLowerCase().trim(), exp.spend);
+                        expensesMap.set(normalizeCampaignName(exp.campaign), exp.spend);
                     });
                 }
             }
@@ -249,16 +244,26 @@ export async function GET(request: NextRequest) {
             console.warn("Failed to fetch expenses:", expErr);
         }
 
-        // Group data
-        let periods: PeriodGroup[];
-        if (viewType === "byMonth") {
-            periods = groupDataByMonths(filteredData, startDate, endDate, expensesMap);
-        } else {
-            periods = groupDataByWeeks(filteredData, startDate, endDate, expensesMap);
+        // Prepare campaign mapping
+        let campaignMap = new Map<string, string>();
+        try {
+            const settings = await getMetrikaSettings();
+            const rawMapping = getCampaignMapping(settings);
+            Object.entries(rawMapping).forEach(([k, v]) => {
+                campaignMap.set(normalizeCampaignName(k), v);
+            });
+        } catch (e) {
+            console.warn("Failed to load campaign settings:", e);
         }
 
-        // Calculate overall KPI
-        const { totals: overallTotals } = calculateStats(filteredData, expensesMap);
+        let periods: PeriodGroup[];
+        if (viewType === "byMonth") {
+            periods = groupDataByMonths(filteredData, startDate, endDate, expensesMap, campaignMap);
+        } else {
+            periods = groupDataByWeeks(filteredData, startDate, endDate, expensesMap, campaignMap);
+        }
+
+        const { totals: overallTotals } = calculateStats(filteredData, expensesMap, campaignMap);
         const overallKpi: KPIMetrics = {
             totalLeads: overallTotals.totalLeads,
             targetLeads: overallTotals.targetLeads,

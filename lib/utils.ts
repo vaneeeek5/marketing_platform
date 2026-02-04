@@ -137,3 +137,11 @@ export function isSale(salesValue: string | number): boolean {
     if (typeof salesValue === "number") return salesValue > 0;
     return salesValue === "1" || salesValue?.toLowerCase() === "да" || salesValue?.toLowerCase() === "yes";
 }
+// Нормализация имени кампании для сравнения
+export function normalizeCampaignName(name: string): string {
+    return name
+        .toLowerCase()
+        .replace(/[\u2013\u2014]/g, "-") // Replace Em/En dash with hyphen
+        .replace(/\s+/g, " ")
+        .trim();
+}

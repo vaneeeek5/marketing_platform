@@ -1011,3 +1011,30 @@ export async function deleteRowsByDateRangeSafe(
 
     return rowsToDelete.length;
 }
+
+/**
+ * Создать маппинг кампаний из настроек (для нормализации имен)
+ */
+export function getCampaignMapping(settings: any): Record<string, string> {
+    const map: Record<string, string> = {};
+
+    // 1. Campaign Rules (ID -> Name)
+    if (settings.campaign_rules) {
+        Object.entries(settings.campaign_rules).forEach(([id, rule]: [string, any]) => {
+            if (rule.name) map[id] = rule.name;
+        });
+    }
+
+    // 2. Expenses Mapping (UTM/Direct/Display)
+    if (settings.expenses_mapping && Array.isArray(settings.expenses_mapping)) {
+        settings.expenses_mapping.forEach((item: any) => {
+            const targetName = item.displayName || item.directName || item.utmName;
+            if (!targetName) return;
+
+            if (item.utmName) map[item.utmName] = targetName;
+            if (item.directName) map[item.directName] = targetName;
+        });
+    }
+
+    return map;
+}
