@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Toaster } from "sonner";
+import { ClientLayout } from "@/components/ClientLayout";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
@@ -27,17 +26,7 @@ export default function RootLayout({
                     enableSystem
                     disableTransitionOnChange
                 >
-                    <div className="flex min-h-screen">
-                        <Sidebar />
-                        <main className="flex-1 lg:ml-64">
-                            {/* Header */}
-                            <header className="sticky top-0 z-30 flex h-16 items-center justify-end gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
-                                <ThemeToggle />
-                            </header>
-                            {/* Content */}
-                            <div className="p-6">{children}</div>
-                        </main>
-                    </div>
+                    <ClientLayout>{children}</ClientLayout>
                     <Toaster position="top-right" closeButton />
                 </ThemeProvider>
             </body>
