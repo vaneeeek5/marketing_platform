@@ -419,9 +419,7 @@ export default function ReportsPage() {
         );
     }
 
-    if (!data) return null;
-
-    const { campaignStats, kpi } = data;
+    const { campaignStats, kpi } = data || { campaignStats: [], kpi: { totalLeads: 0, targetLeads: 0, qualifiedLeads: 0, sales: 0, targetPercent: 0, qualifiedPercent: 0, conversionRate: 0, totalSpend: 0, cpl: 0, cpo: 0 } };
 
     // Filter campaignStats based on selectedCampaigns
     const filteredCampaignStats = useMemo(() => {
@@ -468,6 +466,8 @@ export default function ReportsPage() {
 
         return { periods: filteredPeriods };
     }, [groupedData, selectedCampaigns]);
+
+    if (!data) return null;
 
 
     return (
@@ -825,7 +825,7 @@ export default function ReportsPage() {
                                                 <TableCell className="text-right">
                                                     {campaign.conversionRate.toFixed(1)}%
                                                 </TableCell>
-                                                {totals.spend > 0 && (
+                                                {filteredTotals.spend > 0 && (
                                                     <>
                                                         <TableCell className="text-right">
                                                             {campaign.spend
