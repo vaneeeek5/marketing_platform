@@ -233,6 +233,7 @@ export async function GET(request: NextRequest) {
         const startDate = parseISO(startDateStr);
         const endDate = parseISO(endDateStr);
 
+        // 1. Load Sheet Data First (Single Source)
         const allSheetNames = await getSheetNames();
         const allData: Record<string, string | number | undefined>[] = [];
 
@@ -245,39 +246,14 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        const filteredData = allData.filter(row => {
-            const dateStr = String(row[COLUMN_NAMES.DATE] || "");
-            const date = parseDate(dateStr);
-            if (!date) return false;
-
-            const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-            const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-            const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-
-            return targetDate >= start && targetDate <= end;
-        });
-
-        // Fetch expenses server-side with daily grouping
-        const expensesArray: any[] = [];
-        try {
-            // Import dynamically to avoid circular deps if any, though likely fine as static import
-            const { fetchExpenses } = await import("@/lib/metrika");
-            // Transform Date objects to YYYY-MM-DD for API
-            const sStr = format(startDate, "yyyy-MM-dd");
-            const eStr = format(endDate, "yyyy-MM-dd");
-
-            const result = await fetchExpenses(sStr, eStr, {}, [], true); // true = groupByDate
-            if (result.expenses) {
-                expensesArray.push(...result.expenses);
-            }
-        } catch (expErr) {
-            console.warn("Failed to fetch expenses:", expErr);
-        }
-
-        // Prepare campaign mapping
+        // 2. Load Settings & Mapping
         let campaignMap = new Map<string, string>();
+        let directClientLogins: string[] = [];
         try {
             const settings = await getMetrikaSettings();
+            if (settings.direct_client_logins) {
+                directClientLogins = settings.direct_client_logins;
+            }
             const rawMapping = getCampaignMapping(settings);
             Object.entries(rawMapping).forEach(([k, v]) => {
                 campaignMap.set(normalizeCampaignName(k), v);
@@ -286,23 +262,116 @@ export async function GET(request: NextRequest) {
             console.warn("Failed to load campaign settings:", e);
         }
 
-        let periods: PeriodGroup[];
+        // 3. Generate Periods (Date Ranges)
+        let periodsConfig: { start: Date; end: Date; name: string }[] = [];
+
         if (viewType === "byMonth") {
-            periods = groupDataByMonths(filteredData, startDate, endDate, expensesArray, campaignMap);
+            const months = eachMonthOfInterval({ start: startDate, end: endDate });
+            periodsConfig = months.map(monthStart => ({
+                start: monthStart,
+                end: endOfMonth(monthStart),
+                name: format(monthStart, "LLLL yyyy", { locale: ru })
+            }));
         } else {
-            periods = groupDataByWeeks(filteredData, startDate, endDate, expensesArray, campaignMap);
+            const weeks = eachWeekOfInterval({ start: startDate, end: endDate }, { weekStartsOn: 1, locale: ru });
+            periodsConfig = weeks.map(weekStart => {
+                const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1, locale: ru });
+                return {
+                    start: weekStart,
+                    end: weekEnd,
+                    name: `${format(weekStart, "dd.MM")} - ${format(weekEnd, "dd.MM")}`
+                };
+            });
         }
 
-        // Calculate overall totals (using all filtered data and all expenses in range)
-        // We reuse CalculateStats but we need to generate a map for the WHOLE period first
-        const totalExpensesMap = new Map<string, number>();
-        expensesArray.forEach(exp => {
-            const key = normalizeCampaignName(exp.campaign);
-            const current = totalExpensesMap.get(key) || 0;
-            totalExpensesMap.set(key, current + exp.spend);
+        // 4. Parallel Fetch for Expenses per Period
+        //    AND Filter Leads per Period
+        const { fetchExpenses } = await import("@/lib/metrika");
+
+        const periodPromises = periodsConfig.map(async (config) => {
+            const pStart = config.start;
+            const pEnd = config.end;
+            const pStartStr = format(pStart, "yyyy-MM-dd");
+            const pEndStr = format(pEnd, "yyyy-MM-dd");
+
+            // A. Filter Leads
+            const periodLeads = allData.filter(row => {
+                const dateStr = String(row[COLUMN_NAMES.DATE] || "");
+                const date = parseDate(dateStr);
+                if (!date) return false;
+                const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+                // Normalize boundary dates
+                const boundStart = new Date(pStart.getFullYear(), pStart.getMonth(), pStart.getDate());
+                const boundEnd = new Date(pEnd.getFullYear(), pEnd.getMonth(), pEnd.getDate());
+
+                return targetDate >= boundStart && targetDate <= boundEnd;
+            });
+
+            // B. Fetch Expenses (Specific to this period)
+            let periodExpensesMap = new Map<string, number>();
+            try {
+                // Standard fetch without grouping, exactly like Expenses page
+                const expResult = await fetchExpenses(pStartStr, pEndStr, {}, directClientLogins, false);
+                if (expResult.expenses) {
+                    expResult.expenses.forEach(e => {
+                        const key = normalizeCampaignName(e.campaign);
+                        const current = periodExpensesMap.get(key) || 0;
+                        periodExpensesMap.set(key, current + e.spend);
+                    });
+                }
+            } catch (err) {
+                console.warn(`Expenses error for ${config.name}:`, err);
+            }
+
+            // C. Calculate Stats
+            // If no data at all, return null (to be filtered out) unless we want to show empty rows
+            if (periodLeads.length === 0 && periodExpensesMap.size === 0) return null;
+
+            const { campaignStats, totals } = calculateStats(periodLeads, periodExpensesMap, campaignMap);
+
+            return {
+                name: config.name,
+                startDate: pStartStr,
+                endDate: pEndStr,
+                campaignStats,
+                totals
+            } as PeriodGroup;
         });
 
-        const { totals: overallTotals } = calculateStats(filteredData, totalExpensesMap, campaignMap);
+        const periodsDiff = await Promise.all(periodPromises);
+        const validPeriods = periodsDiff.filter(p => p !== null) as PeriodGroup[];
+
+        // 5. Calculate Overall KPI (Sum of all periods? Or re-calculate global?)
+        // Re-calculating global is safer to capture data that might fall outside standard weeks if any
+        // BUT for consistency, summing validPeriods totals is often better visually. 
+        // Let's filter global data by start/end range and fetch global expenses for Top Cards.
+
+        const filteredGlobalData = allData.filter(row => {
+            const dateStr = String(row[COLUMN_NAMES.DATE] || "");
+            const date = parseDate(dateStr);
+            if (!date) return false;
+            const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const boundStart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+            const boundEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+            return targetDate >= boundStart && targetDate <= boundEnd;
+        });
+
+        const globalExpensesMap = new Map<string, number>();
+        try {
+            // One big fetch for the whole range for the Summary Cards
+            const globalExpResult = await fetchExpenses(format(startDate, "yyyy-MM-dd"), format(endDate, "yyyy-MM-dd"), {}, directClientLogins, false);
+            if (globalExpResult.expenses) {
+                globalExpResult.expenses.forEach(e => {
+                    const key = normalizeCampaignName(e.campaign);
+                    const current = globalExpensesMap.get(key) || 0;
+                    globalExpensesMap.set(key, current + e.spend);
+                });
+            }
+        } catch (e) { console.warn("Global expenses error:", e); }
+
+        const { totals: overallTotals } = calculateStats(filteredGlobalData, globalExpensesMap, campaignMap);
+
         const overallKpi: KPIMetrics = {
             totalLeads: overallTotals.totalLeads,
             targetLeads: overallTotals.targetLeads,
@@ -317,11 +386,12 @@ export async function GET(request: NextRequest) {
         };
 
         const response: GroupedAnalyticsResponse = {
-            periods,
+            periods: validPeriods,
             overallKpi
         };
 
         return NextResponse.json(response);
+
     } catch (error) {
         console.error("Error in grouped analytics:", error);
         return NextResponse.json(
