@@ -7,11 +7,12 @@ import { startOfWeek, endOfWeek, format, startOfMonth, endOfMonth, eachWeekOfInt
 import { ru } from "date-fns/locale";
 
 // Helper: Group data by calendar weeks
+// Helper: Group data by calendar weeks
 function groupDataByWeeks(
     allData: Record<string, string | number | undefined>[],
     startDate: Date,
     endDate: Date,
-    expensesMap: Map<string, number>,
+    expensesArray: any[],
     campaignMap: Map<string, string>
 ): PeriodGroup[] {
     const weeks = eachWeekOfInterval(
@@ -23,22 +24,37 @@ function groupDataByWeeks(
 
     for (const weekStart of weeks) {
         const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1, locale: ru });
+        const weekStartNorm = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate());
+        const weekEndNorm = new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate());
 
+        // Filter Leads
         const weekData = allData.filter(row => {
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
             const date = parseDate(dateStr);
             if (!date) return false;
 
             const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-            const weekStartNorm = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate());
-            const weekEndNorm = new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate());
-
             return targetDate >= weekStartNorm && targetDate <= weekEndNorm;
         });
 
-        if (weekData.length === 0) continue;
+        // Filter & Aggregate Expenses
+        const periodExpensesMap = new Map<string, number>();
+        expensesArray.forEach(exp => {
+            // exp.date is YYYY-MM-DD
+            if (!exp.date) return;
+            const expDate = parseISO(exp.date);
+            const targetExpDate = new Date(expDate.getFullYear(), expDate.getMonth(), expDate.getDate());
 
-        const { campaignStats, totals } = calculateStats(weekData, expensesMap, campaignMap);
+            if (targetExpDate >= weekStartNorm && targetExpDate <= weekEndNorm) {
+                const key = normalizeCampaignName(exp.campaign);
+                const current = periodExpensesMap.get(key) || 0;
+                periodExpensesMap.set(key, current + exp.spend);
+            }
+        });
+
+        if (weekData.length === 0 && periodExpensesMap.size === 0) continue;
+
+        const { campaignStats, totals } = calculateStats(weekData, periodExpensesMap, campaignMap);
 
         periodGroups.push({
             name: `${format(weekStart, "dd.MM")} - ${format(weekEnd, "dd.MM")}`,
@@ -57,7 +73,7 @@ function groupDataByMonths(
     allData: Record<string, string | number | undefined>[],
     startDate: Date,
     endDate: Date,
-    expensesMap: Map<string, number>,
+    expensesArray: any[],
     campaignMap: Map<string, string>
 ): PeriodGroup[] {
     const months = eachMonthOfInterval({ start: startDate, end: endDate });
@@ -66,22 +82,36 @@ function groupDataByMonths(
 
     for (const monthStart of months) {
         const monthEnd = endOfMonth(monthStart);
+        const monthStartNorm = new Date(monthStart.getFullYear(), monthStart.getMonth(), monthStart.getDate());
+        const monthEndNorm = new Date(monthEnd.getFullYear(), monthEnd.getMonth(), monthEnd.getDate());
 
+        // Filter Leads
         const monthData = allData.filter(row => {
             const dateStr = String(row[COLUMN_NAMES.DATE] || "");
             const date = parseDate(dateStr);
             if (!date) return false;
 
             const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-            const monthStartNorm = new Date(monthStart.getFullYear(), monthStart.getMonth(), monthStart.getDate());
-            const monthEndNorm = new Date(monthEnd.getFullYear(), monthEnd.getMonth(), monthEnd.getDate());
-
             return targetDate >= monthStartNorm && targetDate <= monthEndNorm;
         });
 
-        if (monthData.length === 0) continue;
+        // Filter & Aggregate Expenses
+        const periodExpensesMap = new Map<string, number>();
+        expensesArray.forEach(exp => {
+            if (!exp.date) return;
+            const expDate = parseISO(exp.date);
+            const targetExpDate = new Date(expDate.getFullYear(), expDate.getMonth(), expDate.getDate());
 
-        const { campaignStats, totals } = calculateStats(monthData, expensesMap, campaignMap);
+            if (targetExpDate >= monthStartNorm && targetExpDate <= monthEndNorm) {
+                const key = normalizeCampaignName(exp.campaign);
+                const current = periodExpensesMap.get(key) || 0;
+                periodExpensesMap.set(key, current + exp.spend);
+            }
+        });
+
+        if (monthData.length === 0 && periodExpensesMap.size === 0) continue;
+
+        const { campaignStats, totals } = calculateStats(monthData, periodExpensesMap, campaignMap);
 
         periodGroups.push({
             name: format(monthStart, "LLLL yyyy", { locale: ru }),
@@ -227,18 +257,18 @@ export async function GET(request: NextRequest) {
             return targetDate >= start && targetDate <= end;
         });
 
-        const expensesMap = new Map<string, number>();
+        // Fetch expenses server-side with daily grouping
+        const expensesArray: any[] = [];
         try {
-            const expensesRes = await fetch(
-                `${request.nextUrl.origin}/api/expenses?startDate=${startDateStr}&endDate=${endDateStr}`
-            );
-            if (expensesRes.ok) {
-                const expensesData = await expensesRes.json();
-                if (expensesData.expenses) {
-                    expensesData.expenses.forEach((exp: { campaign: string; spend: number }) => {
-                        expensesMap.set(normalizeCampaignName(exp.campaign), exp.spend);
-                    });
-                }
+            // Import dynamically to avoid circular deps if any, though likely fine as static import
+            const { fetchExpenses } = await import("@/lib/metrika");
+            // Transform Date objects to YYYY-MM-DD for API
+            const sStr = format(startDate, "yyyy-MM-dd");
+            const eStr = format(endDate, "yyyy-MM-dd");
+
+            const result = await fetchExpenses(sStr, eStr, {}, [], true); // true = groupByDate
+            if (result.expenses) {
+                expensesArray.push(...result.expenses);
             }
         } catch (expErr) {
             console.warn("Failed to fetch expenses:", expErr);
@@ -258,12 +288,21 @@ export async function GET(request: NextRequest) {
 
         let periods: PeriodGroup[];
         if (viewType === "byMonth") {
-            periods = groupDataByMonths(filteredData, startDate, endDate, expensesMap, campaignMap);
+            periods = groupDataByMonths(filteredData, startDate, endDate, expensesArray, campaignMap);
         } else {
-            periods = groupDataByWeeks(filteredData, startDate, endDate, expensesMap, campaignMap);
+            periods = groupDataByWeeks(filteredData, startDate, endDate, expensesArray, campaignMap);
         }
 
-        const { totals: overallTotals } = calculateStats(filteredData, expensesMap, campaignMap);
+        // Calculate overall totals (using all filtered data and all expenses in range)
+        // We reuse CalculateStats but we need to generate a map for the WHOLE period first
+        const totalExpensesMap = new Map<string, number>();
+        expensesArray.forEach(exp => {
+            const key = normalizeCampaignName(exp.campaign);
+            const current = totalExpensesMap.get(key) || 0;
+            totalExpensesMap.set(key, current + exp.spend);
+        });
+
+        const { totals: overallTotals } = calculateStats(filteredData, totalExpensesMap, campaignMap);
         const overallKpi: KPIMetrics = {
             totalLeads: overallTotals.totalLeads,
             targetLeads: overallTotals.targetLeads,

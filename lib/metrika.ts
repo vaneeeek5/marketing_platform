@@ -266,6 +266,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export interface ExpenseData {
+    date?: string;
     campaign: string;
     spend: number;
     visits: number;
@@ -280,7 +281,8 @@ export async function fetchExpenses(
     dateFrom: string,
     dateTo: string,
     campaignMap: Record<string, string> = {},
-    directClientLogins: string[] = []
+    directClientLogins: string[] = [],
+    groupByDate: boolean = false
 ): Promise<{ expenses: ExpenseData[], total: { spend: number; visits: number }, hasDirectAccess: boolean }> {
     const token = process.env.YANDEX_METRIKA_TOKEN;
     const counterId = process.env.YANDEX_COUNTER_ID;
@@ -319,24 +321,30 @@ export async function fetchExpenses(
     };
 
     // 1. Fetch Visits (Session Data)
+    // Dimensions: Date, UTMCampaign if grouped, else Just UTMCampaign
+    const visitsDimensions = groupByDate ? 'ym:s:date,ym:s:UTMCampaign' : 'ym:s:UTMCampaign';
+
     const visitsParams = new URLSearchParams({
         'ids': counterId,
         'metrics': 'ym:s:visits',
-        'dimensions': 'ym:s:UTMCampaign',
+        'dimensions': visitsDimensions,
         'date1': dateFrom,
         'date2': dateTo,
-        'limit': '1000',
+        'limit': '10000', // Increased limit for daily granularity
         'accuracy': 'full',
     });
 
     // 2. Fetch Direct Costs (Ad Data) - ONLY if logins provided
+    // Dimensions: Date, DirectOrder if grouped, else Just DirectOrder
+    const costsDimensions = groupByDate ? 'ym:ad:date,ym:ad:directOrder' : 'ym:ad:directOrder';
+
     const costsParams = new URLSearchParams({
         'ids': counterId,
         'metrics': 'ym:ad:RUBAdCost,ym:ad:USDAdCost,ym:ad:EURAdCost,ym:ad:BYNAdCost,ym:ad:KZTAdCost',
-        'dimensions': 'ym:ad:directOrder',
+        'dimensions': costsDimensions,
         'date1': dateFrom,
         'date2': dateTo,
-        'limit': '1000',
+        'limit': '10000', // Increased limit for daily granularity
         'accuracy': 'full',
     });
 
@@ -388,15 +396,32 @@ export async function fetchExpenses(
     }
 
     // Merging Logic (Name-based matching with display name support)
-    const expenseMap = new Map<string, ExpenseData>(); // Key: Display Name
+    // Key needs to include Date if grouping is enabled
+    // Key format: "NormalizedName" OR "Date|NormalizedName"
+    const expenseMap = new Map<string, ExpenseData>();
+
+    const generateKey = (name: string, date: string | null) => {
+        const norm = name.trim();
+        return date ? `${date}|${norm}` : norm;
+    };
 
     // 1. Process Costs (Direct Data is the "Source of Truth" for Spend)
     if (costsData) {
         costsData.forEach((row: any) => {
-            const rawName = row.dimensions?.[0]?.name || "Direct Campaign";
+            let date = null;
+            let rawName = "Direct Campaign";
+
+            if (groupByDate) {
+                // dimensions: [ {name: "2026-01-01"}, {name: "Order Name"} ]
+                date = row.dimensions?.[0]?.name;
+                rawName = row.dimensions?.[1]?.name || rawName;
+            } else {
+                rawName = row.dimensions?.[0]?.name || rawName;
+            }
+
             // Normalization applied here
             const displayName = getMappedName(rawName);
-            const key = displayName.trim();
+            const key = generateKey(displayName, date);
 
             // Sum Spend
             let spend = 0;
@@ -406,6 +431,7 @@ export async function fetchExpenses(
 
             if (!expenseMap.has(key)) {
                 expenseMap.set(key, {
+                    date: date || undefined,
                     campaign: displayName,
                     spend: spend,
                     visits: 0,
@@ -421,10 +447,20 @@ export async function fetchExpenses(
     // 2. Process Visits (Merge by mapped name)
     if (visitsData) {
         visitsData.forEach((row: any) => {
-            const utmName = row.dimensions?.[0]?.name || "Не определена";
+            let date = null;
+            let utmName = "Не определена";
+
+            if (groupByDate) {
+                // dimensions: [ {name: "2026-01-01"}, {name: "utm_campaign"} ]
+                date = row.dimensions?.[0]?.name;
+                utmName = row.dimensions?.[1]?.name || utmName;
+            } else {
+                utmName = row.dimensions?.[0]?.name || utmName;
+            }
+
             // Normalization applied here
             const displayName = getMappedName(utmName);
-            const key = displayName.trim();
+            const key = generateKey(displayName, date);
             const visits = row.metrics?.[0] || 0;
 
             if (expenseMap.has(key)) {
@@ -434,6 +470,7 @@ export async function fetchExpenses(
             } else {
                 // Create new Visits-only entry
                 expenseMap.set(key, {
+                    date: date || undefined,
                     campaign: displayName,
                     spend: 0,
                     visits: visits,
@@ -452,10 +489,14 @@ export async function fetchExpenses(
         if (val.visits > 0 || val.spend > 0) {
             val.cpc = val.visits > 0 ? val.spend / val.visits : 0;
             expenses.push(val);
-            totalSpend += val.spend;
-            totalVisits += val.visits;
+            // Only add to global total if we actually processed it (if grouped by date, we might simply sum them all)
         }
     });
+
+    // Re-calculate simpler totals by iterating final array
+    // This allows correct summing even if same campaign appears multiple days
+    totalSpend = expenses.reduce((sum, item) => sum + item.spend, 0);
+    totalVisits = expenses.reduce((sum, item) => sum + item.visits, 0);
 
     return {
         expenses: expenses.sort((a, b) => b.spend - a.spend),
