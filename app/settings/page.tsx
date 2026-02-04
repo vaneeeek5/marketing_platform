@@ -812,10 +812,12 @@ function ArchiveSection() {
     const [file, setFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
     const [result, setResult] = useState("");
+    const [debugInfo, setDebugInfo] = useState<any>(null);
 
     const handleUpload = async () => {
         if (!file) return;
         setUploading(true);
+        setDebugInfo(null);
         const formData = new FormData();
         formData.append("file", file);
 
@@ -827,6 +829,7 @@ function ArchiveSection() {
             const data = await res.json();
             if (data.success) {
                 setResult(`Успешно обновлено: ${data.updated} строк`);
+                if (data.debugInfo) setDebugInfo(data.debugInfo);
             } else {
                 setResult(`Ошибка: ${data.error}`);
             }
@@ -862,6 +865,22 @@ function ArchiveSection() {
                     </Button>
                     {result && <span className="text-sm text-muted-foreground">{result}</span>}
                 </div>
+
+                {debugInfo && (
+                    <div className="mt-4 p-4 bg-muted/50 rounded-md text-xs font-mono overflow-auto max-h-60">
+                        <p className="font-bold mb-2">Debug Info:</p>
+                        <div className="space-y-2">
+                            <div>
+                                <span className="font-semibold">Detected Columns:</span>
+                                <pre>{JSON.stringify(debugInfo.detectedColumns, null, 2)}</pre>
+                            </div>
+                            <div>
+                                <span className="font-semibold">First Row Parsed:</span>
+                                <pre>{JSON.stringify(debugInfo.firstRowNormalized, null, 2)}</pre>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
