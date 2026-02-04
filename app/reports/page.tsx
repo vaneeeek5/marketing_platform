@@ -402,24 +402,8 @@ export default function ReportsPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-                <p className="text-lg text-destructive mb-2">Ошибка загрузки</p>
-                <p className="text-muted-foreground">{error}</p>
-            </div>
-        );
-    }
-
-    const { campaignStats, kpi } = data || { campaignStats: [], kpi: { totalLeads: 0, targetLeads: 0, qualifiedLeads: 0, sales: 0, targetPercent: 0, qualifiedPercent: 0, conversionRate: 0, totalSpend: 0, cpl: 0, cpo: 0 } };
+    // Safe destructuring for hooks
+    const safeData = data || { campaignStats: [], kpi: { totalLeads: 0, targetLeads: 0, qualifiedLeads: 0, sales: 0, targetPercent: 0, qualifiedPercent: 0, conversionRate: 0, totalSpend: 0, cpl: 0, cpo: 0 } };
 
     // Filter campaignStats based on selectedCampaigns
     const filteredCampaignStats = useMemo(() => {
@@ -467,7 +451,26 @@ export default function ReportsPage() {
         return { periods: filteredPeriods };
     }, [groupedData, selectedCampaigns]);
 
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+                <p className="text-lg text-destructive mb-2">Ошибка загрузки</p>
+                <p className="text-muted-foreground">{error}</p>
+            </div>
+        );
+    }
+
     if (!data) return null;
+
+    const { campaignStats, kpi } = safeData;
 
 
     return (
