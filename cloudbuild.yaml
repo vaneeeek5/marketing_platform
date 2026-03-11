@@ -3,15 +3,15 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/marketing-platform-486210/marketing-platform:$COMMIT_SHA'
+      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:$COMMIT_SHA'
       - '-t'
-      - 'gcr.io/marketing-platform-486210/marketing-platform:latest'
+      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:latest'
       - '.'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/marketing-platform-486210/marketing-platform:$COMMIT_SHA'
+      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:$COMMIT_SHA'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -20,14 +20,14 @@ steps:
       - 'deploy'
       - 'marketing-platform'
       - '--image'
-      - 'gcr.io/marketing-platform-486210/marketing-platform:$COMMIT_SHA'
+      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:$COMMIT_SHA'
       - '--region'
       - 'europe-central2'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
-      - 'GOOGLE_SHEET_ID=1V9s3qmv1cEf-2BmCfGdkKHJfrCppXHHQxIQNz7vSl3c,GOOGLE_CLIENT_EMAIL=app-bot@marketing-platform-486210.iam.gserviceaccount.com,YANDEX_METRIKA_TOKEN=y0__xDfxb1gGNq_NyDAivKjFqYkr66aXNxZXnyS_T_w7GA7TD3F,YANDEX_COUNTER_ID=93215285'
+      - 'GOOGLE_SHEET_ID=1V9s3qmv1cEf-2BmCfGdkKHJfrCppXHHQxIQNz7vSl3c,GOOGLE_CLIENT_EMAIL=app-bot@marketing-platform-486210.iam.gserviceaccount.com,YANDEX_METRIKA_TOKEN=y0__xDfxb1gGNq_NyDAivKjFqYkr66aXNxZXnyS_T_w7GA7TD3F,YANDEX_COUNTER_ID=93215285,NODE_OPTIONS=--openssl-legacy-provider'
       - '--update-secrets'
       - 'GOOGLE_PRIVATE_KEY=google-private-key:latest'
 
