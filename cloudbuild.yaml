@@ -3,15 +3,15 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:$COMMIT_SHA'
+      - 'europe-central2-docker.pkg.dev/gen-lang-client-0615310787/cloud-run-source-deploy/marketing-platform:$COMMIT_SHA'
       - '-t'
-      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:latest'
+      - 'europe-central2-docker.pkg.dev/gen-lang-client-0615310787/cloud-run-source-deploy/marketing-platform:latest'
       - '.'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:$COMMIT_SHA'
+      - 'europe-central2-docker.pkg.dev/gen-lang-client-0615310787/cloud-run-source-deploy/marketing-platform:$COMMIT_SHA'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -20,7 +20,7 @@ steps:
       - 'deploy'
       - 'marketing-platform'
       - '--image'
-      - 'gcr.io/gen-lang-client-0615310787/marketing-platform:$COMMIT_SHA'
+      - 'europe-central2-docker.pkg.dev/gen-lang-client-0615310787/cloud-run-source-deploy/marketing-platform:$COMMIT_SHA'
       - '--region'
       - 'europe-central2'
       - '--platform'
