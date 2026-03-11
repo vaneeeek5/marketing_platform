@@ -31,7 +31,13 @@ export default function DiagnosticsPage() {
         setLoading(true);
         setResult(null);
         try {
-            const res = await fetch("/api/diagnostics");
+            const res = await fetch(`/api/diagnostics?t=${Date.now()}`, {
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
             const data = await res.json();
             setResult(data);
             setLastRun(new Date().toLocaleTimeString("ru-RU"));

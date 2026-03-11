@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 
+export const dynamic = "force-dynamic";
+
 interface DiagCheck {
     name: string;
     status: "ok" | "error" | "warning";
