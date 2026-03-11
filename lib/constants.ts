@@ -46,4 +46,5 @@ export const NAV_ITEMS = [
     { href: "/reports", label: "Отчёты", icon: "FileText" },
     { href: "/expenses", label: "Расходы", icon: "Wallet" },
     { href: "/settings", label: "Настройки", icon: "Settings" },
+    { href: "/diagnostics", label: "Диагностика", icon: "Activity" },
 ] as const;

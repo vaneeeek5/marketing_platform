@@ -13,6 +13,7 @@ import {
     Menu,
     X,
     Wallet,
+    Activity,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -23,6 +24,7 @@ const iconMap = {
     FileText,
     Settings,
     Wallet,
+    Activity,
 };
 
 export function Sidebar() {
