@@ -43,12 +43,38 @@ export async function GET() {
     });
 
     // Check private key format
+    let effectiveKeys: { client_email?: string; private_key?: string } = {
+        client_email: clientEmail,
+        private_key: privateKey?.replace(/\\n/g, "\n"),
+    };
+
     if (!privateKey) {
         checks.push({
             name: "GOOGLE_PRIVATE_KEY",
             status: "error",
             message: "✗ не задан",
         });
+    } else if (privateKey.trim().startsWith("{")) {
+        try {
+            const jsonKey = JSON.parse(privateKey);
+            effectiveKeys = {
+                client_email: jsonKey.client_email,
+                private_key: jsonKey.private_key,
+            };
+            checks.push({
+                name: "GOOGLE_PRIVATE_KEY",
+                status: jsonKey.private_key ? "ok" : "error",
+                message: jsonKey.private_key ? "✓ обнаружен полный JSON (формат корректен)" : "✗ JSON не содержит private_key",
+                detail: `Project: ${jsonKey.project_id}, Email: ${jsonKey.client_email}`,
+            });
+        } catch (e) {
+            checks.push({
+                name: "GOOGLE_PRIVATE_KEY",
+                status: "error",
+                message: "✗ ошибка парсинга JSON",
+                detail: String(e),
+            });
+        }
     } else {
         const keyDecoded = privateKey.replace(/\\n/g, "\n");
         const hasBegin = keyDecoded.includes("-----BEGIN");
@@ -58,8 +84,8 @@ export async function GET() {
             name: "GOOGLE_PRIVATE_KEY",
             status: hasBegin && hasEnd ? "ok" : "error",
             message: hasBegin && hasEnd
-                ? `✓ корректный формат (${keyLength} символов)`
-                : "✗ некорректный формат (нет BEGIN/END маркеров)",
+                ? `✓ корректный PEM формат (${keyLength} символов)`
+                : "✗ некорректный PEM формат (нет BEGIN/END маркеров)",
             detail: `Первые 40 символов: ${keyDecoded.substring(0, 40)}...`,
         });
     }
@@ -81,10 +107,7 @@ export async function GET() {
     let authError = "";
     try {
         const auth = new google.auth.GoogleAuth({
-            credentials: {
-                client_email: clientEmail,
-                private_key: privateKey?.replace(/\\n/g, "\n"),
-            },
+            credentials: effectiveKeys,
             scopes: ["https://www.googleapis.com/auth/spreadsheets"],
         });
         const token = await auth.getAccessToken();
@@ -109,10 +132,7 @@ export async function GET() {
     if (authOk && sheetId) {
         try {
             const auth = new google.auth.GoogleAuth({
-                credentials: {
-                    client_email: clientEmail,
-                    private_key: privateKey?.replace(/\\n/g, "\n"),
-                },
+                credentials: effectiveKeys,
                 scopes: ["https://www.googleapis.com/auth/spreadsheets"],
             });
             const sheets = google.sheets({ version: "v4", auth });

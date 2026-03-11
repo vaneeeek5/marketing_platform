@@ -4,11 +4,26 @@ export { CURRENT_MONTH_SHEET };
 
 // Инициализация Google Sheets API
 function getGoogleSheetsClient(): sheets_v4.Sheets {
+    let credentials: { client_email?: string; private_key?: string } = {
+        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    };
+
+    // Если в GOOGLE_PRIVATE_KEY передан весь JSON ключ целиком
+    if (process.env.GOOGLE_PRIVATE_KEY?.trim().startsWith("{")) {
+        try {
+            const jsonKey = JSON.parse(process.env.GOOGLE_PRIVATE_KEY);
+            credentials = {
+                client_email: jsonKey.client_email,
+                private_key: jsonKey.private_key,
+            };
+        } catch (e) {
+            console.error("Ошибка парсинга GOOGLE_PRIVATE_KEY как JSON:", e);
+        }
+    }
+
     const auth = new google.auth.GoogleAuth({
-        credentials: {
-            client_email: process.env.GOOGLE_CLIENT_EMAIL,
-            private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-        },
+        credentials,
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
 
