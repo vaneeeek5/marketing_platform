@@ -15,7 +15,7 @@ function getGoogleSheetsClient(): sheets_v4.Sheets {
     return google.sheets({ version: "v4", auth });
 }
 
-const SPREADSHEET_ID = "1V9s3qmv1cEf-2BmCfGdkKHJfrCppXHHQxIQNz7vSl3c" || process.env.GOOGLE_SHEET_ID;
+const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || "1V9s3qmv1cEf-2BmCfGdkKHJfrCppXHHQxIQNz7vSl3c";
 
 // Типы для данных
 export interface SheetRow {
