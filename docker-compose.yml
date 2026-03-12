@@ -54,7 +54,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: marketing-platform-tunnel
     restart: always
-    command: tunnel run
+    command: tunnel --protocol http2 run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
