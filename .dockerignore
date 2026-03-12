@@ -17,3 +17,6 @@ architecture.md
 README.md
 cloudbuild.yaml
 vercel.json
+npm-cache
+.npm
+tmp
