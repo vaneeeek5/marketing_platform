@@ -1,7 +1,5 @@
 #!/bin/bash
-
-# Marketing Platform Deployment Script
-# ==========================================
+set -e # Stop on error
 
 echo "🚀 Starting deployment..."
 
@@ -16,11 +14,17 @@ fi
 
 # Build and start the containers
 echo "🛠️ Building and starting containers..."
+docker-compose down --remove-orphans
 docker-compose up -d --build
+
+# Wait for container to be ready and run migrations
+echo "📂 Running database migrations..."
+sleep 5 # Give it a moment to start
+docker-compose exec -T marketing-platform npx prisma migrate deploy
 
 # Clean up unused images
 echo "🧹 Cleaning up old images..."
 docker image prune -f
 
 echo "✅ Deployment complete!"
-echo "📍 Access the platform at http://localhost:3000 (or your server's IP)"
+echo "📍 Access the platform via your domain."
