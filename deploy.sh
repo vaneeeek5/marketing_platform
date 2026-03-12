@@ -12,6 +12,9 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# Ensure external network exists
+docker network create marketing_platform_network 2>/dev/null || true
+
 # Build and start the containers
 echo "🛠️ Building and starting containers..."
 docker-compose down --remove-orphans

@@ -64,6 +64,7 @@ services:
 
 networks:
   app-network:
+    external: true
     name: marketing_platform_network
 
 volumes:
