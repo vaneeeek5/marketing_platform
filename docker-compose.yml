@@ -8,7 +8,7 @@ services:
     container_name: marketing-platform
     restart: always
     ports:
-      - "3000" # Expose internally, or use "3100:3000" if you want local host access on a specific port
+      - "3000:3000" # Expose to host network for local access
     depends_on:
       - db
     networks:
