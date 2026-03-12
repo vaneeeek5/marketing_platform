@@ -11,6 +11,8 @@ services:
       - "3000" # Expose internally, or use "3100:3000" if you want local host access on a specific port
     depends_on:
       - db
+    networks:
+      - app-network
     env_file:
       - .env
       - .env.local
@@ -29,6 +31,8 @@ services:
       POSTGRES_DB: marketing_platform
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
     # ports:
     #   - "5432:5432" # Removed to avoid conflicts with other Postgres instances
 
@@ -43,6 +47,8 @@ services:
     #   - "5050:80" # Removed to avoid conflicts
     depends_on:
       - db
+    networks:
+      - app-network
 
   cloudflare-tunnel:
     image: cloudflare/cloudflared:latest
@@ -53,6 +59,12 @@ services:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - marketing-platform
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    name: marketing_platform_network
 
 volumes:
   postgres_data:
