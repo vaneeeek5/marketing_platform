@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  marketing-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marketing-platform
+    restart: always
+    ports:
+      - "3000" # Expose internally, or use "3100:3000" if you want local host access on a specific port
+    depends_on:
+      - db
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+      - DATABASE_URL=postgresql://nextjs:nextjs_password@db:5432/marketing_platform?schema=public
+
+  db:
+    image: postgres:15-alpine
+    container_name: marketing-platform-db
+    restart: always
+    environment:
+      POSTGRES_USER: nextjs
+      POSTGRES_PASSWORD: nextjs_password
+      POSTGRES_DB: marketing_platform
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # ports:
+    #   - "5432:5432" # Removed to avoid conflicts with other Postgres instances
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: marketing-platform-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    # ports:
+    #   - "5050:80" # Removed to avoid conflicts
+    depends_on:
+      - db
+
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: marketing-platform-tunnel
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - marketing-platform
+
+volumes:
+  postgres_data:

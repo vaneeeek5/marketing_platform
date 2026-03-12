@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  password  String    // Hashed
+  role      Role      @default(USER)
+  projects  ProjectLink[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique // URL-friendly name
+  description String?
+  isActive    Boolean  @default(true)
+
+  // API Configurations
+  googleSheetId      String?
+  yandexMetrikaToken String?
+  yandexCounterId    String?
+  yandexDirectLogins String? // Comma separated
+  utmSourceFilter    String?
+  
+  users    ProjectLink[]
+  leads    Lead[]
+  expenses Expense[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Junction table for User-Project relationship with roles
+model ProjectLink {
+  userId    String
+  projectId String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role      String   @default("VIEWER") // VIEWER, EDITOR, ADMIN
+
+  @@id([userId, projectId])
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  metrikaVisitId  String?  @unique
+  date            DateTime
+  campaign        String
+  goal            String
+  status          String?  // Target, Spam, etc.
+  qualification   String?  // Qual, Duplicate
+  saleAmount      Float?   @default(0)
+  comment         String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([date])
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  date      DateTime
+  campaign  String
+  visits    Int      @default(0)
+  cost      Float    @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([date])
+}
+
+model GlobalSettings {
+  id    Int    @id @default(1)
+  key   String @unique
+  value String
+}
