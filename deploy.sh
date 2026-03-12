@@ -20,7 +20,7 @@ docker-compose up -d --build
 # Wait for container to be ready and run migrations
 echo "📂 Running database migrations..."
 sleep 5 # Give it a moment to start
-docker-compose exec -T marketing-platform npx prisma migrate deploy
+docker-compose exec -T marketing-platform npx prisma@6.4.1 migrate deploy
 
 # Clean up unused images
 echo "🧹 Cleaning up old images..."
