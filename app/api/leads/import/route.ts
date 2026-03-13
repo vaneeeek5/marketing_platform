@@ -1,6 +1,7 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { appendRows } from "@/lib/googleSheets";
-import { CURRENT_MONTH_SHEET, COLUMN_NAMES } from "@/lib/constants";
+import prisma from "@/lib/prisma";
+import { COLUMN_NAMES } from "@/lib/constants";
 import * as XLSX from "xlsx";
 
 // POST /api/leads/import - импорт из Excel
@@ -8,13 +9,17 @@ export async function POST(request: NextRequest) {
     try {
         const formData = await request.formData();
         const file = formData.get("file") as File;
-        const sheetName = (formData.get("sheetName") as string) || CURRENT_MONTH_SHEET;
 
         if (!file) {
             return NextResponse.json(
                 { error: "Файл не предоставлен" },
                 { status: 400 }
             );
+        }
+
+        const project = await prisma.project.findFirst();
+        if (!project) {
+            return NextResponse.json({ error: "Проект в БД не найден" }, { status: 400 });
         }
 
         // Читаем файл
@@ -59,8 +64,8 @@ export async function POST(request: NextRequest) {
             "Comment": COLUMN_NAMES.COMMENT,
         };
 
-        // Преобразуем строки в объекты
-        const processedRows = rows
+        // Преобразуем строки в объекты для БД
+        const recordsToCreate = rows
             .filter((row) => row.some((cell) => cell && cell.trim())) // Фильтруем пустые строки
             .map((row) => {
                 const obj: Record<string, string> = {};
@@ -68,23 +73,36 @@ export async function POST(request: NextRequest) {
                     const mappedColumn = columnMapping[header] || header;
                     obj[mappedColumn] = row[index] || "";
                 });
-                return obj;
+                
+                let dateObj = new Date(`${obj[COLUMN_NAMES.DATE]}T${obj[COLUMN_NAMES.TIME] || "00:00:00"}`);
+                if (isNaN(dateObj.getTime())) { dateObj = new Date(); }
+
+                return {
+                    projectId: project.id,
+                    date: dateObj,
+                    campaign: obj[COLUMN_NAMES.CAMPAIGN] || "",
+                    qualification: obj[COLUMN_NAMES.QUALIFICATION] || "",
+                    comment: obj[COLUMN_NAMES.COMMENT] || ""
+                };
             });
 
-        if (processedRows.length === 0) {
+        if (recordsToCreate.length === 0) {
             return NextResponse.json(
                 { error: "Нет данных для импорта" },
                 { status: 400 }
             );
         }
 
-        // Добавляем строки в Google Sheets
-        const addedCount = await appendRows(sheetName, processedRows);
+        // Добавляем строки в БД
+        const result = await prisma.lead.createMany({
+            data: recordsToCreate,
+            skipDuplicates: true
+        });
 
         return NextResponse.json({
             success: true,
-            message: `Успешно импортировано ${addedCount} строк`,
-            importedCount: addedCount,
+            message: `Успешно импортировано ${result.count} строк`,
+            importedCount: result.count,
         });
     } catch (error) {
         console.error("Ошибка при импорте:", error);

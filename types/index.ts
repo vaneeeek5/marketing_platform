@@ -1,6 +1,6 @@
-// Тип лида из Google Sheets
+// Тип лида из БД
 export interface Lead {
-    rowIndex: number;
+    id: string;
     metrika_visit_id?: string;
     number: string;
     campaign: string;
@@ -15,9 +15,8 @@ export interface Lead {
 
 // Данные для обновления лида
 export interface LeadUpdate {
-    sheetName: string;
-    rowIndex: number;
-    field: "qualification" | "comment";
+    id: string;
+    field: "qualification" | "comment" | "target" | "sales";
     value: string;
 }
 

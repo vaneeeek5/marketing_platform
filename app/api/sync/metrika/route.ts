@@ -1,17 +1,8 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import {
-    fetchLeads,
-    getGoals
-} from "@/lib/metrika";
-import {
-    appendRows,
-    checkVisitIdsExist,
-    ensureMetrikaSheetExists,
-    clearSheetContent,
-    updateMetrikaSettings,
-    getMetrikaSettings,
-    SheetRow
-} from "@/lib/googleSheets";
+import prisma from "@/lib/prisma";
+import { fetchLeads, getGoals } from "@/lib/metrika";
+import { updateMetrikaSettings, getMetrikaSettings } from "@/lib/googleSheets";
 
 // Increase timeout for this route if deployed to Vercel
 export const maxDuration = 60;
@@ -21,32 +12,36 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { dateFrom, dateTo, goalIds, manual, action } = body;
 
-        // TARGET SHEET IS ALWAYS "Лиды"
-        const targetSheet = "Лиды";
-
-        // 2. Ensure sheets exist
-        await ensureMetrikaSheetExists(targetSheet);
+        // Get default project
+        const project = await prisma.project.findFirst();
+        if (!project) {
+            return NextResponse.json({ error: "No projects exist to attach leads to." }, { status: 400 });
+        }
 
         // HANDLE CLEAR ACTION
         if (action === "clean") {
             if (dateFrom && dateTo) {
-                const { deleteRowsByDateRangeSafe } = await import("@/lib/googleSheets");
-                const count = await deleteRowsByDateRangeSafe(targetSheet, dateFrom, dateTo);
+                const start = new Date(dateFrom);
+                const end = new Date(dateTo);
+                end.setHours(23, 59, 59, 999);
+                
+                const deleteResult = await prisma.lead.deleteMany({
+                    where: {
+                        projectId: project.id,
+                        date: { gte: start, lte: end }
+                    }
+                });
                 return NextResponse.json({
                     success: true,
-                    message: `Удалено ${count} строк из ${targetSheet} за период ${dateFrom} - ${dateTo}`
+                    message: `Удалено ${deleteResult.count} лидов из БД за период ${dateFrom} - ${dateTo}`
                 });
             } else {
-                // Determine if we should allow full clear?
-                // For safety, let's keep full clear but maybe log it.
-                // Or better, only allow full clear if explicitly requested?
-                // The current UI only sends action=clean without dates effectively doing full clear.
-                // We will update UI to always send dates if manual mode is open.
-                // But providing fallback for now.
-                await clearSheetContent(targetSheet);
+                const deleteResult = await prisma.lead.deleteMany({
+                    where: { projectId: project.id }
+                });
                 return NextResponse.json({
                     success: true,
-                    message: `Sheet ${targetSheet} fully cleared`
+                    message: `All ${deleteResult.count} leads removed.`
                 });
             }
         }
@@ -59,9 +54,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // 3. Update status
+        // 3. Update status in settings
         if (manual) {
-            await updateMetrikaSettings({ last_sync_result: `Sync started for ${targetSheet}...` });
+            await updateMetrikaSettings({ last_sync_result: `Sync started to DB...` });
         }
 
         // 4. Fetch valid goals
@@ -92,9 +87,9 @@ export async function POST(request: NextRequest) {
         // 5. Fetch leads from Metrika
         console.log(`Fetching leads from ${dateFrom} to ${dateTo}`);
 
-        let leads: any[] = [];
+        let metrikaLeads: any[] = [];
         try {
-            leads = await fetchLeads(
+            metrikaLeads = await fetchLeads(
                 dateFrom,
                 dateTo,
                 validGoalIds,
@@ -105,20 +100,20 @@ export async function POST(request: NextRequest) {
         } catch (fetchError: any) {
             if (fetchError.message && fetchError.message.includes("Unknown field")) {
                 console.warn("Retrying without goals...", fetchError.message);
-                leads = await fetchLeads(
-                    dateFrom,
-                    dateTo,
-                    [],
-                    goalNamesMap,
-                    settings.allowed_utm_sources,
-                    legacyCampaignMap
+                metrikaLeads = await fetchLeads(
+                     dateFrom,
+                     dateTo,
+                     [],
+                     goalNamesMap,
+                     settings.allowed_utm_sources,
+                     legacyCampaignMap
                 );
             } else {
                 throw fetchError;
             }
         }
 
-        if (leads.length === 0) {
+        if (metrikaLeads.length === 0) {
             const msg = "No leads found in Metrika for this period";
             if (manual) await updateMetrikaSettings({ last_sync_result: msg });
             return NextResponse.json({
@@ -129,31 +124,48 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // 6. Deduplication
-        const visitIds = leads.map(l => l.visitId);
-        const existingIds = await checkVisitIdsExist(targetSheet, visitIds);
-        const newLeads = leads.filter(l => !existingIds.has(l.visitId));
+        // 6. Deduplication in DB
+        const visitIds = metrikaLeads.map(l => l.visitId);
+        const existingLeads = await prisma.lead.findMany({
+            where: {
+                projectId: project.id,
+                metrikaVisitId: { in: visitIds }
+            },
+            select: { metrikaVisitId: true }
+        });
+        
+        const existingIds = new Set(existingLeads.map(l => l.metrikaVisitId));
+        const newLeads = metrikaLeads.filter(l => !existingIds.has(l.visitId));
 
-        // 7. Append to Sheets
+        // 7. Insert to DB
         let addedCount = 0;
         if (newLeads.length > 0) {
-            const rowsToAdd: SheetRow[] = newLeads.map(lead => {
+            const recordsToCreate = newLeads.map(lead => {
                 const matchingRule = Object.values(settings.campaign_rules || {}).find(r => r.name === lead.campaign);
+                
+                // Parse date properly to Date object
+                let dateObj = new Date(`${lead.date}T${lead.time || "00:00:00"}`);
+                if (isNaN(dateObj.getTime())) {
+                    dateObj = new Date();
+                }
 
-                const row: SheetRow = {
-                    "Дата": lead.date,
-                    "Время": lead.time,
-                    "Кампания": lead.campaign,
-                    "Цель": lead.goalName,
-                    "metrika_visit_id": lead.visitId,
-                    "Целевой": matchingRule?.target_status || "",
-                    "Квалификация": matchingRule?.qualification_status || "",
-                    "Сумма продажи": matchingRule?.amount ? String(matchingRule.amount) : ""
+                return {
+                    projectId: project.id,
+                    metrikaVisitId: lead.visitId,
+                    date: dateObj,
+                    campaign: lead.campaign || "",
+                    goal: lead.goalName || "",
+                    status: matchingRule?.target_status || "",
+                    qualification: matchingRule?.qualification_status || "",
+                    saleAmount: matchingRule?.amount ? parseFloat(String(matchingRule.amount)) : 0,
                 };
-                return row;
             });
 
-            addedCount = await appendRows(targetSheet, rowsToAdd);
+            const result = await prisma.lead.createMany({
+                data: recordsToCreate,
+                skipDuplicates: true // fallback safety
+            });
+            addedCount = result.count;
         }
 
         const resultMsg = `Added: ${addedCount}, Skipped: ${existingIds.size} (Duplicates)`;

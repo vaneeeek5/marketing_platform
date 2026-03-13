@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getSheetData, getBudgetData, getSheetNames, getMetrikaSettings } from "@/lib/googleSheets";
 import { COLUMN_NAMES, CURRENT_MONTH_SHEET, THRESHOLDS } from "@/lib/constants";

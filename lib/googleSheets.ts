@@ -4,9 +4,19 @@ export { CURRENT_MONTH_SHEET };
 
 // Инициализация Google Sheets API
 function getGoogleSheetsClient(): sheets_v4.Sheets {
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY || "";
+    if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+        privateKey = privateKey.slice(1, -1);
+    }
+    
+    let clientEmail = process.env.GOOGLE_CLIENT_EMAIL || "";
+    if ((clientEmail.startsWith('"') && clientEmail.endsWith('"')) || (clientEmail.startsWith("'") && clientEmail.endsWith("'"))) {
+        clientEmail = clientEmail.slice(1, -1);
+    }
+
     let credentials: { client_email?: string; private_key?: string } = {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+        client_email: clientEmail,
+        private_key: privateKey.replace(/\\n/g, "\n"),
     };
 
     // Если в GOOGLE_PRIVATE_KEY передан весь JSON ключ целиком

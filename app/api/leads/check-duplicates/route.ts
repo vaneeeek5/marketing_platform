@@ -1,24 +1,25 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { getSheetData, updateRow } from "@/lib/googleSheets";
-import { CURRENT_MONTH_SHEET } from "@/lib/constants";
-import { Lead } from "@/types";
+import prisma from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
     try {
-        const leads = await getSheetData(CURRENT_MONTH_SHEET);
-        const map = new Map<string, number>();
-        const duplicates: { rowIndex: number }[] = [];
+        const project = await prisma.project.findFirst();
+        if (!project) {
+            return NextResponse.json({ success: false, error: "No project found" }, { status: 400 });
+        }
 
-        // Identify duplicates
-        // Key: Date + Time + Campaign + (Client ID if available? No, usually Date+Time is unique enough for Metrika logs down to second)
-        // Let's use Date + Time + ClientID (if exists in comment?).
-        // Actually, identical Date + Time + Campaign is suspicious enough.
-        // Let's use Date + Time.
+        const leads = await prisma.lead.findMany({
+            where: { projectId: project.id },
+            orderBy: { createdAt: 'asc' } // oldest first to keep the first one
+        });
+
+        const map = new Set<string>();
+        const duplicatesToUpdate: string[] = [];
 
         leads.forEach((lead) => {
-            const date = lead["Дата"]?.toString() || "";
-            const time = lead["Время"]?.toString() || "";
-            // const campaign = lead["Кампания"]?.toString() || "";
+            const date = lead.date.toISOString().split('T')[0];
+            const time = lead.date.toISOString().split('T')[1].substring(0,8);
 
             if (!date || !time) return;
 
@@ -26,36 +27,31 @@ export async function POST(req: NextRequest) {
 
             if (map.has(key)) {
                 // Duplicate found
-                // Only mark if not already marked "дубль" ?
-                // Check 'Qualification' column
-                const qual = lead["Квалификация"]?.toString().toLowerCase() || "";
+                const qual = lead.qualification?.toLowerCase() || "";
                 if (!qual.includes("дубль")) {
-                    duplicates.push({ rowIndex: lead.rowIndex });
+                    duplicatesToUpdate.push(lead.id);
                 }
             } else {
-                map.set(key, lead.rowIndex);
+                map.add(key);
             }
         });
 
-        console.log(`Found ${duplicates.length} new duplicates to mark.`);
+        console.log(`Found ${duplicatesToUpdate.length} new duplicates to mark.`);
 
-        // Update duplicates in parallel (limit concurrency if needed, but for <50 items it's fine)
-        // Google Sheets API has limits, so serial or small batch is safer.
-        // We'll do serial for safety.
-
-        let markedCount = 0;
-        for (const dup of duplicates) {
-            await updateRow(CURRENT_MONTH_SHEET, dup.rowIndex, {
-                "Квалификация": "Дубль",
-                "Комментарий": "Автоматически определен как дубль"
+        if (duplicatesToUpdate.length > 0) {
+            await prisma.lead.updateMany({
+                where: { id: { in: duplicatesToUpdate } },
+                data: {
+                    qualification: "Дубль",
+                    comment: "Автоматически определен как дубль"
+                }
             });
-            markedCount++;
         }
 
         return NextResponse.json({
             success: true,
-            message: `Проверено. Отмечено дублей: ${markedCount}`,
-            count: markedCount
+            message: `Проверено. Отмечено дублей: ${duplicatesToUpdate.length}`,
+            count: duplicatesToUpdate.length
         });
 
     } catch (error) {

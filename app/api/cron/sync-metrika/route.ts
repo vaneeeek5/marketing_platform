@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { fetchLeads, getGoals } from "@/lib/metrika";
 import { appendRows, getSheetData } from "@/lib/googleSheets";

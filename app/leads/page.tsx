@@ -116,7 +116,7 @@ export default function LeadsPage() {
     const [showDatePicker, setShowDatePicker] = useState(false);
 
     // Edit state
-    const [editingRow, setEditingRow] = useState<number | null>(null);
+    const [editingRow, setEditingRow] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<{
         qualification: string;
         comment: string;
@@ -339,7 +339,7 @@ export default function LeadsPage() {
     }, [leads, selectedCampaigns, selectedStatuses, selectedTargets, searchQuery, startDate, endDate]);
 
     const handleEdit = (lead: Lead) => {
-        setEditingRow(lead.rowIndex);
+        setEditingRow(lead.id);
         setEditValues({
             qualification: lead.qualification,
             comment: lead.comment,
@@ -352,12 +352,12 @@ export default function LeadsPage() {
         setEditValues({ qualification: "", comment: "", sales: "" });
     };
 
-    const handleInlineUpdate = async (rowIndex: number, field: string, value: string) => {
+    const handleInlineUpdate = async (id: string, field: string, value: string) => {
         const effectiveValue = value === '-' ? '' : value;
         const previousLeads = [...leads];
         setLeads((prev) =>
             prev.map((lead) =>
-                lead.rowIndex === rowIndex
+                lead.id === id
                     ? { ...lead, [field === 'target' ? 'Целевой' : 'qualification']: effectiveValue }
                     : lead
             )
@@ -368,8 +368,8 @@ export default function LeadsPage() {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    sheetName: currentSheet,
-                    rowIndex,
+                    sheetName: currentSheet, // Kept to avoid TS errors till API changes, although unused
+                    id,
                     field,
                     value: effectiveValue,
                 }),
@@ -383,7 +383,7 @@ export default function LeadsPage() {
         }
     };
 
-    const handleSave = async (rowIndex: number) => {
+    const handleSave = async (id: string) => {
         setSaving(true);
         try {
             if (editValues.sales !== undefined) {
@@ -392,7 +392,7 @@ export default function LeadsPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         sheetName: currentSheet,
-                        rowIndex,
+                        id,
                         field: "sales",
                         value: editValues.sales,
                     }),
@@ -405,7 +405,7 @@ export default function LeadsPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         sheetName: currentSheet,
-                        rowIndex,
+                        id,
                         field: "comment",
                         value: editValues.comment,
                     }),
@@ -414,7 +414,7 @@ export default function LeadsPage() {
 
             setLeads((prev) =>
                 prev.map((lead) =>
-                    lead.rowIndex === rowIndex
+                    lead.id === id
                         ? {
                             ...lead,
                             sales: editValues.sales,
@@ -967,7 +967,7 @@ export default function LeadsPage() {
                                     </TableRow>
                                 ) : (
                                     sortedLeads.map((lead) => (
-                                        <TableRow key={lead.rowIndex} className="table-row-hover">
+                                        <TableRow key={lead.id} className="table-row-hover">
                                             <TableCell className="font-medium sticky left-0 z-10 bg-card shadow-[1px_0_0_0_rgba(0,0,0,0.1)]">
                                                 {formatDate(lead.date)}
                                             </TableCell>
@@ -978,7 +978,7 @@ export default function LeadsPage() {
                                             <TableCell>
                                                 <Select
                                                     value={String(lead["Целевой"] ?? "")}
-                                                    onValueChange={(v) => handleInlineUpdate(lead.rowIndex, 'target', v)}
+                                                    onValueChange={(v) => handleInlineUpdate(lead.id, 'target', v)}
                                                 >
                                                     <SelectTrigger className="h-auto py-1 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0 p-0 text-left">
                                                         <SelectValue>
@@ -1015,7 +1015,7 @@ export default function LeadsPage() {
                                             <TableCell>
                                                 <Select
                                                     value={lead.qualification || "-"}
-                                                    onValueChange={(v) => handleInlineUpdate(lead.rowIndex, 'qualification', v)}
+                                                    onValueChange={(v) => handleInlineUpdate(lead.id, 'qualification', v)}
                                                 >
                                                     <SelectTrigger className="h-8 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0">
                                                         <SelectValue>
@@ -1051,7 +1051,7 @@ export default function LeadsPage() {
                                             </TableCell>
                                             {/* SALES EDIT */}
                                             <TableCell>
-                                                {editingRow === lead.rowIndex ? (
+                                                {editingRow === lead.id ? (
                                                     <Input
                                                         value={editValues.sales}
                                                         onChange={(e) =>
@@ -1069,7 +1069,7 @@ export default function LeadsPage() {
                                             </TableCell>
                                             {/* COMMENT EDIT */}
                                             <TableCell>
-                                                {editingRow === lead.rowIndex ? (
+                                                {editingRow === lead.id ? (
                                                     <Input
                                                         value={editValues.comment}
                                                         onChange={(e) =>
@@ -1087,7 +1087,7 @@ export default function LeadsPage() {
                                                 )}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {editingRow === lead.rowIndex ? (
+                                                {editingRow === lead.id ? (
                                                     <div className="flex justify-end gap-1">
                                                         <Button
                                                             size="sm"
@@ -1099,7 +1099,7 @@ export default function LeadsPage() {
                                                         </Button>
                                                         <Button
                                                             size="sm"
-                                                            onClick={() => handleSave(lead.rowIndex)}
+                                                            onClick={() => handleSave(lead.id)}
                                                             disabled={saving}
                                                         >
                                                             {saving ? (

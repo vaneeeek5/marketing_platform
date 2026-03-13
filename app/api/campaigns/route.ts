@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getUniqueCampaigns } from "@/lib/googleSheets";
 import { CURRENT_MONTH_SHEET } from "@/lib/constants";
