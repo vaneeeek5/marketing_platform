@@ -87,12 +87,15 @@ export default function LeadsPage() {
     const [error, setError] = useState<string | null>(null);
     const [campaigns, setCampaigns] = useState<string[]>([]);
     const [currentSheet, setCurrentSheet] = useState(CURRENT_MONTH_SHEET);
+    const [totalLeads, setTotalLeads] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const PAGE_SIZE = 100;
 
     // Filters
-    // Filters
-    const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]); // Multi-select
-    const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]); // Multi-select
-    const [selectedTargets, setSelectedTargets] = useState<string[]>([]); // Multi-select
+    const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
+    const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+    const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
     const [searchQuery, setSearchQuery] = useState<string>("");
 
     // UI toggles
@@ -106,9 +109,9 @@ export default function LeadsPage() {
     // Goals selection state
     const [availableGoals, setAvailableGoals] = useState<{ id: number; name: string; type: string }[]>([]);
     const [selectedGoalIds, setSelectedGoalIds] = useState<number[]>([]);
-    const [showGoalsFilter, setShowGoalsFilter] = useState(false); // Used for UI toggle now
+    const [showGoalsFilter, setShowGoalsFilter] = useState(false);
     const [loadingGoals, setLoadingGoals] = useState(false);
-    const [showSettings, setShowSettings] = useState(false); // Collapsible settings block
+    const [showSettings, setShowSettings] = useState(false);
 
     // Date Filter State
     const [startDate, setStartDate] = useState<string>("");
@@ -172,36 +175,41 @@ export default function LeadsPage() {
         }
     };
 
-    const fetchLeads = useCallback(async () => {
-        if (!currentSheet) return;
-
+    const fetchLeads = useCallback(async (page = 1) => {
         setLoading(true);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
         try {
-            const response = await fetch(
-                `/api/leads?sheet=${encodeURIComponent(currentSheet)}`,
-                { signal: controller.signal }
-            );
+            const params = new URLSearchParams({
+                page: String(page),
+                limit: String(PAGE_SIZE),
+            });
+            if (searchQuery) params.set('search', searchQuery);
+            if (selectedCampaigns.length === 1) params.set('campaign', selectedCampaigns[0]);
+            if (selectedStatuses.length === 1) params.set('qualification', selectedStatuses[0]);
+            if (selectedTargets.length === 1) params.set('target', selectedTargets[0]);
+            if (startDate) params.set('startDate', startDate);
+            if (endDate) params.set('endDate', endDate);
+
+            const response = await fetch(`/api/leads?${params.toString()}`, { signal: controller.signal });
             clearTimeout(timeoutId);
 
-            if (!response.ok) {
-                throw new Error(`Ошибка загрузки данных: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`Ошибка загрузки данных: ${response.status}`);
 
-            const result: LeadsResponse = await response.json();
+            const result = await response.json();
             setLeads(result.leads);
+            setFilteredLeads(result.leads);
+            setTotalLeads(result.total);
+            setCurrentPage(result.page);
+            setTotalPages(result.totalPages);
 
-            // Extract unique campaigns
-            const uniqueCampaigns = Array.from(
-                new Set(result.leads.map((l) => l.campaign).filter(Boolean))
-            );
-            setCampaigns(uniqueCampaigns);
+            const uniqueCampaigns = Array.from(new Set(result.leads.map((l: Lead) => l.campaign).filter(Boolean)));
+            setCampaigns(prev => Array.from(new Set([...prev, ...uniqueCampaigns as string[]])));
             setError(null);
         } catch (err: any) {
             if (err.name === 'AbortError') {
-                setError("Превышено время ожидания загрузки (timeout 15s). Попробуйте обновить страницу.");
+                setError("Превышено время ожидания загрузки. Попробуйте обновить страницу.");
                 toast.error("Слишком долгая загрузка");
             } else {
                 setError(err instanceof Error ? err.message : "Неизвестная ошибка");
@@ -210,7 +218,7 @@ export default function LeadsPage() {
         } finally {
             setLoading(false);
         }
-    }, [currentSheet]);
+    }, [searchQuery, selectedCampaigns, selectedStatuses, selectedTargets, startDate, endDate]);
 
     // Load available goals and settings
     const loadGoalsAndSettings = useCallback(async () => {
@@ -271,72 +279,15 @@ export default function LeadsPage() {
     };
 
     useEffect(() => {
-        fetchLeads();
+        fetchLeads(1);
         loadGoalsAndSettings();
-    }, [currentSheet, fetchLeads, loadGoalsAndSettings]);
+    }, []);
 
-    // Apply filters
+    // When filters change, re-fetch from server
     useEffect(() => {
-        let filtered = [...leads];
-
-        // Campaign Filter
-        if (selectedCampaigns.length > 0) {
-            filtered = filtered.filter((l) =>
-                selectedCampaigns.includes(l.campaign)
-            );
-        }
-
-        // Status Filter (Multi-select)
-        if (selectedStatuses.length > 0) {
-            filtered = filtered.filter((l) =>
-                selectedStatuses.some(status => {
-                    if (status === 'empty') {
-                        return !l.qualification || l.qualification.trim() === '';
-                    }
-                    return l.qualification?.toLowerCase().trim() === status.toLowerCase().trim();
-                })
-            );
-        }
-
-        // Target Filter (Multi-select)
-        if (selectedTargets.length > 0) {
-            filtered = filtered.filter((l) =>
-                selectedTargets.some(target => {
-                    const val = l["Целевой"];
-                    if (target === 'empty') {
-                        return !val || String(val).trim() === '';
-                    }
-                    return String(val || "").toLowerCase().trim() === target.toLowerCase().trim();
-                })
-            );
-        }
-
-        // Search Filter
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            filtered = filtered.filter(
-                (l) =>
-                    l.comment?.toLowerCase().includes(query) ||
-                    l.campaign?.toLowerCase().includes(query) ||
-                    l.date?.includes(query)
-            );
-        }
-
-        // Date Filter
-        if (startDate && endDate) {
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
-
-            filtered = filtered.filter((l) => {
-                const date = parseDate(l.date);
-                if (!date) return false;
-                return date >= start && date <= end;
-            });
-        }
-
-        setFilteredLeads(filtered);
-    }, [leads, selectedCampaigns, selectedStatuses, selectedTargets, searchQuery, startDate, endDate]);
+        const timer = setTimeout(() => { fetchLeads(1); }, 400);
+        return () => clearTimeout(timer);
+    }, [searchQuery, selectedCampaigns, selectedStatuses, selectedTargets, startDate, endDate]);
 
     const handleEdit = (lead: Lead) => {
         setEditingRow(lead.id);
@@ -913,16 +864,40 @@ export default function LeadsPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 my-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Users className="h-4 w-4" />
-                    Показано {filteredLeads.length} из {leads.length} лидов
+                    Показано {leads.length} из {totalLeads} лидов
+                    {totalPages > 1 && (
+                        <span className="ml-2 text-xs">
+                            (стр. {currentPage} из {totalPages})
+                        </span>
+                    )}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                    {totalPages > 1 && (
+                        <>
+                            <Button
+                                variant="outline" size="sm"
+                                disabled={currentPage <= 1 || loading}
+                                onClick={() => fetchLeads(currentPage - 1)}
+                            >
+                                ← Назад
+                            </Button>
+                            <Button
+                                variant="outline" size="sm"
+                                disabled={currentPage >= totalPages || loading}
+                                onClick={() => fetchLeads(currentPage + 1)}
+                            >
+                                Далее →
+                            </Button>
+                        </>
+                    )}
                     <Button variant="outline" size="sm" onClick={handleCheckDuplicates} disabled={loading}>
                         <CopyCheck className="mr-2 h-4 w-4" />
                         Сверка по дублям
                     </Button>
                 </div>
             </div>
+
 
             {/* Table */}
             <Card>
