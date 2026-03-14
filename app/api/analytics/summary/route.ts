@@ -1,4 +1,19 @@
 export const dynamic = "force-dynamic";
+
+// ── In-memory cache (5-minute TTL) ──────────────────────────────────────────
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCached(key: string) {
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit.data;
+    return null;
+}
+function setCache(key: string, data: unknown) {
+    cache.set(key, { data, ts: Date.now() });
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 import { NextRequest, NextResponse } from "next/server";
 import { getSheetData, getBudgetData, getSheetNames, getMetrikaSettings } from "@/lib/googleSheets";
 import { COLUMN_NAMES, CURRENT_MONTH_SHEET, THRESHOLDS } from "@/lib/constants";
@@ -97,6 +112,15 @@ export async function GET(request: NextRequest) {
         const sheetName = searchParams.get("sheet") || CURRENT_MONTH_SHEET;
         const period = searchParams.get("period") || "month";
         const granularity = searchParams.get("granularity") || "week"; // day, week, month, year
+        const startDate = searchParams.get("startDate") || "";
+        const endDate = searchParams.get("endDate") || "";
+
+        // Check cache first (skip cache for custom periods with unique date ranges)
+        const cacheKey = `${sheetName}|${period}|${granularity}|${startDate}|${endDate}`;
+        const cached = getCached(cacheKey);
+        if (cached) {
+            return NextResponse.json(cached);
+        }
 
         // Get all sheets needed for the period
         const sheetsToFetch = await getSheetsForPeriod(sheetName, period);
@@ -490,6 +514,7 @@ export async function GET(request: NextRequest) {
             metrikaStats,
         };
 
+        setCache(cacheKey, response);
         return NextResponse.json(response);
     } catch (error) {
         console.error("Ошибка при получении аналитики:", error);

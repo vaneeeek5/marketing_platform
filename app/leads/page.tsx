@@ -934,7 +934,7 @@ export default function LeadsPage() {
                                 {filteredLeads.length === 0 ? (
                                     <TableRow>
                                         <TableCell
-                                            colSpan={8}
+                                            colSpan={9}
                                             className="text-center py-8 text-muted-foreground"
                                         >
                                             Нет данных для отображения
@@ -949,6 +949,15 @@ export default function LeadsPage() {
                                             <TableCell>{formatTime(lead.time)}</TableCell>
                                             <TableCell>
                                                 <CampaignBadge campaign={lead.campaign} />
+                                            </TableCell>
+                                            <TableCell>
+                                                {lead["Цель"] ? (
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200 max-w-[170px] truncate block" title={lead["Цель"]}>
+                                                        {lead["Цель"]}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-muted-foreground text-xs">—</span>
+                                                )}
                                             </TableCell>
                                             <TableCell>
                                                 <Select
