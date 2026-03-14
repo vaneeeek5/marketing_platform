@@ -490,7 +490,7 @@ export default function LeadsPage() {
                         {syncing ? "Синхронизация..." : "Подгрузить лиды"}
                     </Button>
 
-                    <Button variant="outline" size="sm" onClick={fetchLeads} disabled={loading || syncing}>
+                    <Button variant="outline" size="sm" onClick={() => fetchLeads(1)} disabled={loading || syncing}>
                         <Filter className="mr-2 h-4 w-4" />
                         Обновить таблицу
                     </Button>
@@ -953,7 +953,7 @@ export default function LeadsPage() {
                                             <TableCell>
                                                 <Select
                                                     value={String(lead["Целевой"] ?? "")}
-                                                    onValueChange={(v) => handleInlineUpdate(lead.id, 'target', v)}
+                                                    onValueChange={(v: string) => handleInlineUpdate(lead.id, 'target', v)}
                                                 >
                                                     <SelectTrigger className="h-auto py-1 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0 p-0 text-left">
                                                         <SelectValue>
@@ -990,7 +990,7 @@ export default function LeadsPage() {
                                             <TableCell>
                                                 <Select
                                                     value={lead.qualification || "-"}
-                                                    onValueChange={(v) => handleInlineUpdate(lead.id, 'qualification', v)}
+                                                    onValueChange={(v: string) => handleInlineUpdate(lead.id, 'qualification', v)}
                                                 >
                                                     <SelectTrigger className="h-8 w-full border-transparent bg-transparent hover:bg-muted focus:ring-0">
                                                         <SelectValue>

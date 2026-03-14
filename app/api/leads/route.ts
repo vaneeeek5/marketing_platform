@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
             prisma.lead.count({ where }),
         ]);
 
-        const leads: Lead[] = rawLeads.map(l => ({
+        const leads: Lead[] = rawLeads.map((l: typeof rawLeads[0]) => ({
             id: l.id,
             metrika_visit_id: l.metrikaVisitId || "",
             number: "",
