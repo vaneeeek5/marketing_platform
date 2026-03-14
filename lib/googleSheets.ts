@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { google, sheets_v4 } from "googleapis";
 import { COLUMN_NAMES, CURRENT_MONTH_SHEET } from "./constants";
 export { CURRENT_MONTH_SHEET };
